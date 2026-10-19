@@ -9,16 +9,16 @@
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
-    <OutputPath>..\..\..\gameManagerSolution\gameManagerSolution\bin\Debug\$(TargetFramework)\games\MTW\DEV\childrens\$(AssemblyName)\</OutputPath>
+    <OutputPath>..\..\..\..\GameManagerSolution\bin\Debug\$(TargetFramework)\games\MTW\DEV\childrens\$(AssemblyName)\</OutputPath>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
-    <OutputPath>..\..\..\gameManagerSolution\gameManagerSolution\bin\Release\$(TargetFramework)\games\MTW\REL\childrens\$(AssemblyName)\</OutputPath>
+    <OutputPath>..\..\..\..\GameManagerSolution\bin\Release\$(TargetFramework)\games\MTW\REL\childrens\$(AssemblyName)\</OutputPath>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\GameManager.Shared\GameManager.Shared\GameManager.Shared.csproj" />
-	<ProjectReference Include="..\..\..\GameManager.Dolphin\GameManager.Dolphin\GameManager.Dolphin.csproj" />
+    <ProjectReference Include="..\..\..\..\libraries\GameManager.Shared\GameManager.Shared\GameManager.Shared.csproj" />
+	<ProjectReference Include="..\..\..\..\libraries\GameManager.Dolphin\GameManager.Dolphin\GameManager.Dolphin.csproj" />
   </ItemGroup>
 
 </Project>
