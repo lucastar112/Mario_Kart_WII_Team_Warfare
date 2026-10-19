@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="../GameManager.Dolphin/GameManager.Dolphin/GameManager.Dolphin.csproj" />
+  <Project Path="../GameManager.Shared/GameManager.Shared/GameManager.Shared.csproj" />
+  <Project Path="Mario Kart WII Team Warfare/DebugManager/DebugManager.csproj" Id="cd983a7d-39e0-4d75-b044-1ef64d9bd90d" />
+  <Project Path="Mario Kart WII Team Warfare/Mario Kart WII Team Warfare.csproj">
+    <Build Project="false" />
+  </Project>
+  <Project Path="Mario Kart WII Team Warfare/MTWManager/MTWManager.csproj" Id="899f33e8-1e7c-41f3-8815-40ac856356ef" />
+</Solution>
