@@ -1,0 +1,51 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+	<OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Folder Include="Assets\MenuPreviews\" />
+    <Folder Include="Assets\Characters\" />
+    <Folder Include="Assets\Vehicles\" />
+    <Folder Include="Menus\" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<Resource Include="Assets\MenuPreviews\*.png" />
+	<Resource Include="Assets\Characters\*.png" />
+	<Resource Include="Assets\Vehicles\*.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\GameManager.Shared\GameManager.Shared\GameManager.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<None Update="Assets\MenuPreviews\**\*.png">
+	 <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	</None>
+
+	<None Update="Assets\Characters\**\*.png">
+	 <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	</None>
+
+	<None Update="Assets\Vehicles\**\*.png">
+	 <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	</None>
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <OutputPath>..\..\..\gameManagerSolution\gameManagerSolution\bin\Debug\net10.0\games\MTW\DEV\childrens\$(AssemblyName)\</OutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <OutputPath>..\..\..\gameManagerSolution\gameManagerSolution\bin\Release\net10.0\games\MTW\REL\childrens\$(AssemblyName)\</OutputPath>
+  </PropertyGroup>
+
+</Project>

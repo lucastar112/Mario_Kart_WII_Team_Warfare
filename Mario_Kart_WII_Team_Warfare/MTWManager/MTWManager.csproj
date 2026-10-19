@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <OutputPath>..\..\..\gameManagerSolution\gameManagerSolution\bin\Debug\$(TargetFramework)\games\MTW\DEV\childrens\$(AssemblyName)\</OutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <OutputPath>..\..\..\gameManagerSolution\gameManagerSolution\bin\Release\$(TargetFramework)\games\MTW\REL\childrens\$(AssemblyName)\</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\GameManager.Shared\GameManager.Shared\GameManager.Shared.csproj" />
+	<ProjectReference Include="..\..\..\GameManager.Dolphin\GameManager.Dolphin\GameManager.Dolphin.csproj" />
+  </ItemGroup>
+
+</Project>
