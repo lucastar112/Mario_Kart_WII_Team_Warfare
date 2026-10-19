@@ -23,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\GameManager.Shared\GameManager.Shared\GameManager.Shared.csproj" />
+    <ProjectReference Include="..\..\..\..\libraries\GameManager.Shared\GameManager.Shared\GameManager.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -41,11 +41,11 @@
   </ItemGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
-    <OutputPath>..\..\..\gameManagerSolution\gameManagerSolution\bin\Debug\net10.0\games\MTW\DEV\childrens\$(AssemblyName)\</OutputPath>
+    <OutputPath>..\..\..\..\GameManagerSolution\bin\Debug\net10.0\games\MTW\DEV\childrens\$(AssemblyName)\</OutputPath>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
-    <OutputPath>..\..\..\gameManagerSolution\gameManagerSolution\bin\Release\net10.0\games\MTW\REL\childrens\$(AssemblyName)\</OutputPath>
+    <OutputPath>..\..\..\..\GameManagerSolution\bin\Release\net10.0\games\MTW\REL\childrens\$(AssemblyName)\</OutputPath>
   </PropertyGroup>
 
 </Project>
