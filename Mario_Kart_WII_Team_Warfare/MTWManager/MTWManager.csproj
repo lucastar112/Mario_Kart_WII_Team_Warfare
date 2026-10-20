@@ -21,4 +21,34 @@
 	<ProjectReference Include="..\..\..\..\libraries\GameManager.Dolphin\GameManager.Dolphin\GameManager.Dolphin.csproj" />
   </ItemGroup>
 
+	<!-- Debug / DEV -->
+	<ItemGroup Condition="'$(Configuration)' == 'Debug'">
+
+		<None Include="src\Config\memory.json">
+			<Link>..\..\config\memory.json</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+
+		<None Include="src\Config\Debug\children.json">
+			<Link>..\..\config\children.json</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+
+	</ItemGroup>
+
+	<!-- Release / REL -->
+	<ItemGroup Condition="'$(Configuration)' == 'Release'">
+
+		<None Include="src\Config\memory.json">
+			<Link>..\..\config\memory.json</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+
+		<None Include="src\Config\Release\children.json">
+			<Link>..\..\config\children.json</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+
+	</ItemGroup>
+
 </Project>
