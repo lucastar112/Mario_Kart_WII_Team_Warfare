@@ -1,0 +1,56 @@
+{
+  "resources": {
+    "GameState": {
+    "address": "0x80000CF6",
+    "type": "uint8",
+    "length": 1,
+    "availability": 0
+    },
+
+    "GameManagerHeartbeat": {
+      "address": "0x80000CF5",
+      "type": "Bool",
+      "length": 1,
+      "availability": 0
+    },
+
+    "RaceState": {
+      "address": "0x80ABCDEF",
+      "type": "uint8",
+      "length": 1,
+      "availability": 0
+    },
+
+    "GameId": {
+      "address": "0x80000000",
+      "type": "string",
+      "length": 6,
+      "availability": 0
+    },
+
+    "PlayersId": {
+      "address": "0x800004E1",
+      "type": "uint8",
+      "length": 12,
+      "availability": 1
+    },
+
+    "VehiclesId": {
+      "address": "0x800004Ed",
+      "type": "uint8",
+      "length": 12,
+      "availability": 1
+    },
+
+    "TestPlayerResource": {
+      "type": "string",
+      "length": 6,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "-0x10"
+      ]
+    }
+  }
+}
