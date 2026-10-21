@@ -1,0 +1,29 @@
+{
+    "Children": [
+        {
+            "Name": "TestConsoleClient",
+            "Enabled": false,
+            "Path": "games\\MTW\\DEV\\childrens\\TestConsoleClientManager\\TestConsoleClient.exe",
+            "Arguments": "",
+            "ipc": true
+        },
+
+        {
+            "Name": "MTW",
+            "Enabled": true,
+            "Path": "games\\MTW\\DEV\\childrens\\MTWManager\\MTW.exe",
+            "Arguments": "{DolphinPID}",
+            "ipc": false,
+            "required": true
+        },
+
+        {
+            "Name": "DebugManager",
+            "Enabled": true,
+            "Path": "games\\MTW\\DEV\\childrens\\DebugManager\\Debug.exe",
+            "Arguments": "",
+            "ipc": true,
+            "required": true
+        }
+    ]
+}

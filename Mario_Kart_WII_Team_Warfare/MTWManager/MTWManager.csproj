@@ -29,7 +29,7 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 
-		<None Include="src\Config\Debug\children.json">
+		<None Include="src\Config\Deb\children.json">
 			<Link>..\..\config\children.json</Link>
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
@@ -44,7 +44,7 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 
-		<None Include="src\Config\Release\children.json">
+		<None Include="src\Config\Rel\children.json">
 			<Link>..\..\config\children.json</Link>
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
