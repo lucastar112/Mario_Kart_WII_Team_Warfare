@@ -8,6 +8,11 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\libraries\GameManager.Dolphin\GameManager.Dolphin\GameManager.Dolphin.csproj" />
+    <ProjectReference Include="..\..\..\libraries\GameManager.Shared\GameManager.Shared\GameManager.Shared.csproj" />
+  </ItemGroup>
+
   
 
 </Project>

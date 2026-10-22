@@ -4,6 +4,7 @@ namespace MTW.Memory
 {
     public sealed class PlayerPointerResolver
     {
+        // PlayerSub10 offsets
         private static readonly IntPtr RaceInstanceAddress = new IntPtr(0x809C18F8);
 
         private static readonly int RaceInstanceOffset = 0x00;
@@ -14,6 +15,12 @@ namespace MTW.Memory
         private static readonly int PlayerSub10Offset1 = 0x00;
         private static readonly int PlayerSub10Offset2 = 0x10;
         private static readonly int PlayerSub10Offset3 = 0x10;
+
+        // Racedata offsets
+        private static readonly IntPtr RaceDataSInstance = new IntPtr(0x809bd728);
+        private static readonly int RaceSInstanceOffset = 0x00;
+        private static readonly int RaceDataPlayersArray = 0x08;
+        private static readonly int RaceDataPlyerOffset = 0xF0;
 
         private readonly DolphinConnection _dolphin;
 
@@ -31,7 +38,7 @@ namespace MTW.Memory
 
             Console.WriteLine($"Resolving MTW player {playerId}...");
 
-            if (!_dolphin.TryReadPointer(new IntPtr(0x809C18F8), 0x00, out IntPtr raceInstance))
+            if (!_dolphin.TryReadPointer(RaceInstanceAddress, RaceInstanceOffset, out IntPtr raceInstance))
             {
                 Console.WriteLine("Failed to resolve race instance.");
                 return false;
@@ -39,7 +46,7 @@ namespace MTW.Memory
 
             Console.WriteLine($"Race instance: 0x{raceInstance.ToInt64():X8}");
 
-            if (!_dolphin.TryReadPointer(raceInstance, 0x20, out IntPtr playerArray))
+            if (!_dolphin.TryReadPointer(raceInstance, PlayerArrayOffset, out IntPtr playerArray))
             {
                 Console.WriteLine("Failed to resolve player pointer array.");
                 return false;
@@ -47,11 +54,11 @@ namespace MTW.Memory
 
             Console.WriteLine($"Player pointer array: 0x{playerArray.ToInt64():X8}");
 
-            IntPtr playerPointerAddress = new IntPtr(playerArray.ToInt64() + playerId * 0x04);
+            IntPtr playerPointerAddress = new IntPtr(playerArray.ToInt64() + playerId * PlayerPointerStep);
 
             Console.WriteLine($"Player {playerId} pointer address: 0x{playerPointerAddress.ToInt64():X8}");
 
-            if (!_dolphin.TryReadPointer(playerPointerAddress, 0x00, out IntPtr player))
+            if (!_dolphin.TryReadPointer(playerPointerAddress, PlayerSub10Offset1, out IntPtr player))
             {
                 Console.WriteLine($"Failed to resolve player {playerId}.");
                 return false;
@@ -59,7 +66,7 @@ namespace MTW.Memory
 
             Console.WriteLine($"Player {playerId}: 0x{player.ToInt64():X8}");
 
-            if (!_dolphin.TryReadPointer(player, 0x10, out IntPtr intermediate))
+            if (!_dolphin.TryReadPointer(player, PlayerSub10Offset2, out IntPtr intermediate))
             {
                 Console.WriteLine($"Failed to resolve player {playerId} intermediate pointer.");
                 return false;
@@ -67,7 +74,7 @@ namespace MTW.Memory
 
             Console.WriteLine($"Player {playerId} intermediate: 0x{intermediate.ToInt64():X8}");
 
-            if (!_dolphin.TryReadPointer(intermediate, 0x10, out playerSub10))
+            if (!_dolphin.TryReadPointer(intermediate, PlayerSub10Offset3, out playerSub10))
             {
                 Console.WriteLine($"Failed to resolve player {playerId} playerSub10.");
                 return false;
@@ -77,8 +84,40 @@ namespace MTW.Memory
             return playerSub10 != IntPtr.Zero;
         }
 
+        public bool TryResolveRaceData(int playerId, out IntPtr raceData)
+        {
+            raceData = IntPtr.Zero;
 
-        public Dictionary<int, IntPtr> ResolveAllPlayers()
+            if (playerId < 0 || playerId >= 12)
+                return false;
+
+            Console.WriteLine($"Resolving MTW player {playerId}...");
+
+            if (!_dolphin.TryReadPointer(RaceDataSInstance, RaceSInstanceOffset, out IntPtr raceSInstance))
+            {
+                Console.WriteLine("Failed to resolve race instance.");
+                return false;
+            }
+
+            Console.WriteLine($"Race instance: 0x{raceSInstance.ToInt64():X8}");
+
+            if (!_dolphin.TryReadPointer(raceSInstance, RaceDataPlayersArray, out IntPtr playerArray))
+            {
+                Console.WriteLine("Failed to resolve player pointer array.");
+                return false;
+            }
+
+            Console.WriteLine($"Player pointer array: 0x{playerArray.ToInt64():X8}");
+
+            raceData = new IntPtr(playerArray.ToInt64() + playerId * RaceDataPlyerOffset);
+
+            Console.WriteLine($"Player {playerId} raceData address: 0x{raceData.ToInt64():X8}");
+
+            return raceData != IntPtr.Zero;
+        }
+
+
+        public Dictionary<int, IntPtr> ResolveAllPlayersSub10()
         {
             Dictionary<int, IntPtr> players = new();
 
@@ -86,6 +125,18 @@ namespace MTW.Memory
             {
                 if (TryResolvePlayerSub10(playerId, out IntPtr playerSub10))
                     players[playerId] = playerSub10;
+            }
+            return players;
+        }
+
+        public Dictionary<int, IntPtr> ResolveAllPlayersRaceData()
+        {
+            Dictionary<int, IntPtr> players = new();
+
+            for (int playerId = 0; playerId < 12; playerId++)
+            {
+                if (TryResolveRaceData(playerId, out IntPtr raceData))
+                    players[playerId] = raceData;
             }
             return players;
         }

@@ -50,17 +50,18 @@ namespace MTW.Race
         private void BuildCache()
         {
             Console.WriteLine("Resolving player pointers...");
-            Dictionary<int, IntPtr> players = _resolver.ResolveAllPlayers();
+            Dictionary<int, IntPtr> playerSub10s = _resolver.ResolveAllPlayersSub10();
+            Dictionary<int, IntPtr> raceDataPlayers = _resolver.ResolveAllPlayersRaceData();
 
-            if (players.Count != 12)
+            if (playerSub10s.Count != 12)
             {
-                Console.WriteLine($"Cache build failed. Resolved {players.Count}/12 players.");
+                Console.WriteLine($"Cache build failed. Resolved {playerSub10s.Count}/12 players.");
                 return;
             }
 
             try
             {
-                _cacheWriter.SavePlayerSub10(players);
+                _cacheWriter.SavePlayerSub10(playerSub10s);
 
                 if (!TryWriteState(2))
                 {
