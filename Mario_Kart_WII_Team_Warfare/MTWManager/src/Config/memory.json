@@ -41,6 +41,7 @@
 
     "VehiclesId": {
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
       "address": "0x800004Ed",
       "type": "uint8",
       "length": 12,
@@ -61,6 +62,14 @@
       "dynamic": true,
       "dynamicBase": "raceData",
       "offsets": [
+=======
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+>>>>>>> Stashed changes
         "0x8"
       ]
     },
@@ -72,6 +81,9 @@
       "dynamic": true,
       "dynamicBase": "raceData",
       "offsets": [
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
         "0xCC"
       ]
