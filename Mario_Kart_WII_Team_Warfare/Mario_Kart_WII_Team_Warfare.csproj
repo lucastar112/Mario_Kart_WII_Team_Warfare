@@ -8,6 +8,21 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\libraries\GameManager.Dolphin\GameManager.Dolphin\GameManager.Dolphin.csproj" />
+    <ProjectReference Include="..\..\..\libraries\GameManager.Shared\GameManager.Shared\GameManager.Shared.csproj" />
+  </ItemGroup>
+
+<<<<<<< Updated upstream
+=======
+  <ItemGroup>
+	<Compile Remove="**\*.cs" />
+
+	<EmbeddedResource Remove="**\*" />
+
+	<None Remove="**\*" />
+  </ItemGroup>
+>>>>>>> Stashed changes
   
 
 </Project>

@@ -29,27 +29,51 @@
     },
 
     "PlayersId": {
-      "address": "0x800004E1",
-      "type": "uint8",
-      "length": 12,
-      "availability": 1
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0xC"
+      ]
     },
 
     "VehiclesId": {
+<<<<<<< Updated upstream
       "address": "0x800004Ed",
       "type": "uint8",
       "length": 12,
       "availability": 1
     },
 
-    "TestPlayerResource": {
-      "type": "string",
-      "length": 6,
+    "TeamId": {
+      "type": "uint8",
+      "length": 1,
       "availability": 1,
       "dynamic": true,
-      "dynamicBase": "playerSub10",
+      "dynamicBase": "racedata",
       "offsets": [
-        "-0x10"
+=======
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0x8"
+      ]
+    },
+
+    "TeamId": {
+      "type": "int32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+>>>>>>> Stashed changes
+        "0xCC"
       ]
     }
   }

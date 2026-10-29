@@ -12,16 +12,16 @@
         {
             "Name": "MTW",
             "Enabled": true,
-            "Path": "games\\MTW\\DEV\\childrens\\MTWManager\\MTW.exe",
+            "Path": "games\\MTW\\DEV\\childrens\\MTWManager\\MTWManager.exe",
             "Arguments": "{DolphinPID}",
-            "ipc": false,
+            "ipc": true,
             "required": true
         },
 
         {
             "Name": "DebugManager",
             "Enabled": false,
-            "Path": "games\\MTW\\DEV\\childrens\\DebugManager\\Debug.exe",
+            "Path": "games\\MTW\\DEV\\childrens\\DebugManager\\DebugManager.exe",
             "Arguments": "",
             "ipc": true,
             "required": false

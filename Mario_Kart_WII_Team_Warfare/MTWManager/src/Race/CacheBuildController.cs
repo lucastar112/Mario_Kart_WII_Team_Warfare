@@ -9,8 +9,7 @@ namespace MTW.Race
         private readonly DolphinConnection _dolphin;
         private readonly PlayerPointerResolver _resolver;
         private readonly DynamicCacheWriter _cacheWriter;
-
-        private readonly IntPtr _stateAddress;
+        private readonly List<string> _resourceNames = new List<string> { "playerSub10", "raceData" };
         private bool _cacheBuildHandled;
         private static readonly IntPtr CacheStateAddress = new IntPtr(0x80000CF6);
 
@@ -21,7 +20,7 @@ namespace MTW.Race
             _cacheWriter = cacheWriter;
         }
 
-        public void Run(CancellationToken cancellationToken)
+        public async Task Run(CancellationToken cancellationToken)
         {
             Console.WriteLine("MTW cache controller started.");
 
@@ -38,7 +37,7 @@ namespace MTW.Race
                 {
                     _cacheBuildHandled = true;
                     Console.WriteLine("Cache build requested.");
-                    BuildCache();
+                    await BuildCache();
                 }
                 else if (state == 0)
                     _cacheBuildHandled = false;
@@ -47,20 +46,29 @@ namespace MTW.Race
             }
         }
 
-        private void BuildCache()
+        private async Task BuildCache()
         {
             Console.WriteLine("Resolving player pointers...");
-            Dictionary<int, IntPtr> players = _resolver.ResolveAllPlayers();
+            Dictionary<int, IntPtr> playerSub10s = _resolver.ResolveAllPlayersSub10();
+            Dictionary<int, IntPtr> raceDataPlayers = _resolver.ResolveAllPlayersRaceData();
+<<<<<<< Updated upstream
+=======
+            List<Dictionary<int, IntPtr>> playerPointerLists = new List<Dictionary<int, IntPtr>> { playerSub10s, raceDataPlayers };
+>>>>>>> Stashed changes
 
-            if (players.Count != 12)
+            if (playerSub10s.Count != 12)
             {
-                Console.WriteLine($"Cache build failed. Resolved {players.Count}/12 players.");
+                Console.WriteLine($"Cache build failed. Resolved {playerSub10s.Count}/12 players.");
                 return;
             }
 
             try
             {
-                _cacheWriter.SavePlayerSub10(players);
+<<<<<<< Updated upstream
+                _cacheWriter.SavePlayerSub10(playerSub10s);
+=======
+                await _cacheWriter.SaveData(playerPointerLists, _resourceNames);
+>>>>>>> Stashed changes
 
                 if (!TryWriteState(2))
                 {
