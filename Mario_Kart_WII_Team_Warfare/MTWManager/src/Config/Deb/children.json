@@ -5,7 +5,8 @@
             "Enabled": false,
             "Path": "games\\MTW\\DEV\\childrens\\TestConsoleClientManager\\TestConsoleClient.exe",
             "Arguments": "",
-            "ipc": true
+            "ipc": true,
+            "required": false
         },
 
         {
