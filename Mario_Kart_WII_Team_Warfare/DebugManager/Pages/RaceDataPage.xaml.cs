@@ -15,7 +15,6 @@ public partial class RaceDataPage : Page, INotifyPropertyChanged
     public ObservableCollection<RacePlayer> Players { get; } = [];
 
     private string _statusMessage = "Race data not initiated";
-    private string _TeamColorStatus = "#303030";
 
     public string StatusMessage
     {
@@ -26,19 +25,6 @@ public partial class RaceDataPage : Page, INotifyPropertyChanged
                 return;
 
             _statusMessage = value;
-            OnPropertyChanged();
-        }
-    }
-
-    public string TeamColorStatus
-    {
-        get => _TeamColorStatus;
-        private set
-        {
-            if (_TeamColorStatus == value)
-                return;
-
-            _TeamColorStatus = value;
             OnPropertyChanged();
         }
     }

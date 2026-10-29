@@ -17,8 +17,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\..\libraries\GameManager.Shared\GameManager.Shared\GameManager.Shared.csproj" />
 	<ProjectReference Include="..\..\..\..\libraries\GameManager.Dolphin\GameManager.Dolphin\GameManager.Dolphin.csproj" />
+	<ProjectReference Include="..\..\..\..\libraries\GameManager.Shared\GameManager.Shared\GameManager.Shared.csproj" />
   </ItemGroup>
 
 	<!-- Debug / DEV -->
@@ -26,6 +26,11 @@
 
 		<None Include="src\Config\memory.json">
 			<Link>..\..\config\memory.json</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+
+		<None Include="src\Config\cache.json">
+			<Link>..\..\config\cache.json</Link>
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 
@@ -41,6 +46,11 @@
 
 		<None Include="src\Config\memory.json">
 			<Link>..\..\config\memory.json</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+
+		<None Include="src\Config\cache.json">
+			<Link>..\..\config\cache.json</Link>
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 

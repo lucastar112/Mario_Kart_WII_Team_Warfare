@@ -1,37 +1,61 @@
-﻿using System.Text.Json;
+﻿using GameManager.Shared.Client;
+using System.Text.Json;
 
 namespace MTW.Cache
 {
     public sealed class DynamicCacheWriter
     {
         private readonly string _cacheFile;
+        private readonly GameManagerClient _gameManagerClient;
 
-        public DynamicCacheWriter(string cacheFile)
+        public DynamicCacheWriter(string cacheFile, GameManagerClient gameManagerClient)
         {
             _cacheFile = cacheFile;
+            _gameManagerClient = gameManagerClient;
         }
 
-        public void SavePlayerSub10(Dictionary<int, IntPtr> players)
+        public async Task SaveData(List<Dictionary<int, IntPtr>> playerPointerLists, List<string> resourceNames)
         {
-            DynamicCache cache = new() {Version = 1};
 
-            DynamicResourceCache resource = new();
+            if (playerPointerLists.Count != resourceNames.Count)
+                throw new ArgumentException("The number of player pointer lists must match the number of resource names.");
 
-            foreach (KeyValuePair<int, IntPtr> player in players)
-                resource.Players[player.Key] = $"0x{player.Value.ToInt64():X8}";
+            DynamicCache cache = new() { Version = 1 };
 
-            cache.Resources["playerSub10"] = resource;
+            for (int i = 0; i < resourceNames.Count; i++)
+            {
+                DynamicResourceCache resource = new();
 
-            string? directory =Path.GetDirectoryName(_cacheFile);
+                foreach (KeyValuePair<int, IntPtr> player in playerPointerLists[i])
+                {
+                    resource.Players[player.Key] =
+                        $"0x{player.Value.ToInt64():X8}";
+                }
+
+                cache.Resources[resourceNames[i]] = resource;
+            }
+
+            string? directory = Path.GetDirectoryName(_cacheFile);
 
             if (!string.IsNullOrWhiteSpace(directory))
+            {
                 Directory.CreateDirectory(directory);
+            }
 
-            string json = JsonSerializer.Serialize(cache, new JsonSerializerOptions{WriteIndented = true});
+            string json = JsonSerializer.Serialize(
+                cache,
+                new JsonSerializerOptions { WriteIndented = true }
+            );
 
-            File.WriteAllText(_cacheFile, json);
+            await File.WriteAllTextAsync(_cacheFile, json);
 
             Console.WriteLine($"Dynamic cache saved: {_cacheFile}");
+
+            // Notify GameManager only after the complete file has been written.
+            await _gameManagerClient.ReloadDynamicCacheAsync();
+
+            Console.WriteLine("Dynamic cache is ready in GameManager.");
+
         }
     }
 

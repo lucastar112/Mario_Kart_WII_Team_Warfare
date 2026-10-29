@@ -3,6 +3,7 @@ using MTW.Memory;
 using MTW.Race;
 using GameManager.Dolphin;
 using System.Diagnostics;
+using GameManager.Shared.Client;
 
 namespace MTW
 {
@@ -13,7 +14,7 @@ namespace MTW
         private const string configFolder = "config";
         private const string cacheFile = "cache.json";
 
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             if (args.Length < 1)
             {
@@ -50,10 +51,45 @@ namespace MTW
                 string configuration = "REL";
             #endif
 
-            DynamicCacheWriter cacheWriter = new DynamicCacheWriter(Path.Combine(gameFolder, gameId, configuration, configFolder, cacheFile));
-            CacheBuildController cacheBuildController = new CacheBuildController(dolphin, resolver, cacheWriter);
-            cacheBuildController.Run(CancellationToken.None);
-            dolphin.Dispose();
+            GameManagerClient gameManagerClient = new GameManagerClient();
+
+            try
+            {
+                await gameManagerClient.ConnectAsync();
+
+                Console.WriteLine("Connected to GameManager.");
+
+                string cachePath = Path.Combine(
+                    gameFolder,
+                    gameId,
+                    configuration,
+                    configFolder,
+                    cacheFile
+                );
+
+                DynamicCacheWriter cacheWriter = new DynamicCacheWriter(
+                    cachePath,
+                    gameManagerClient
+                );
+
+                CacheBuildController cacheBuildController = new CacheBuildController(
+                    dolphin,
+                    resolver,
+                    cacheWriter
+                );
+
+                await cacheBuildController.Run(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"MTW error: {ex}");
+            }
+            finally
+            {
+                // TODO: Dispose of resources properly
+                //gameManagerClient.Dispose();
+                dolphin.Dispose();
+            }
         }
     }
 }
