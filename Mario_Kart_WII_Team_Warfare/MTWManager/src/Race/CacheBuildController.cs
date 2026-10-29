@@ -51,10 +51,7 @@ namespace MTW.Race
             Console.WriteLine("Resolving player pointers...");
             Dictionary<int, IntPtr> playerSub10s = _resolver.ResolveAllPlayersSub10();
             Dictionary<int, IntPtr> raceDataPlayers = _resolver.ResolveAllPlayersRaceData();
-<<<<<<< Updated upstream
-=======
             List<Dictionary<int, IntPtr>> playerPointerLists = new List<Dictionary<int, IntPtr>> { playerSub10s, raceDataPlayers };
->>>>>>> Stashed changes
 
             if (playerSub10s.Count != 12)
             {
@@ -64,11 +61,7 @@ namespace MTW.Race
 
             try
             {
-<<<<<<< Updated upstream
-                _cacheWriter.SavePlayerSub10(playerSub10s);
-=======
                 await _cacheWriter.SaveData(playerPointerLists, _resourceNames);
->>>>>>> Stashed changes
 
                 if (!TryWriteState(2))
                 {

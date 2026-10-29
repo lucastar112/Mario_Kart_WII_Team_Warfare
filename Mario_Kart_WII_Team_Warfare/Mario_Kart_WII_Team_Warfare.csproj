@@ -13,8 +13,6 @@
     <ProjectReference Include="..\..\..\libraries\GameManager.Shared\GameManager.Shared\GameManager.Shared.csproj" />
   </ItemGroup>
 
-<<<<<<< Updated upstream
-=======
   <ItemGroup>
 	<Compile Remove="**\*.cs" />
 
@@ -22,7 +20,6 @@
 
 	<None Remove="**\*" />
   </ItemGroup>
->>>>>>> Stashed changes
   
 
 </Project>
