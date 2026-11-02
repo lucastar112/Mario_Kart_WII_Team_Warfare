@@ -55,9 +55,12 @@ namespace MTW
 
             try
             {
-                await gameManagerClient.ConnectAsync();
-
+                CancellationToken source = new CancellationToken();
+                await gameManagerClient.ConnectAsync(source);
                 Console.WriteLine("Connected to GameManager.");
+                await gameManagerClient.RegisterAsync("MTWManager", source);
+
+                Console.WriteLine("Registered to GameManager.");
 
                 string cachePath = Path.Combine(
                     gameFolder,
