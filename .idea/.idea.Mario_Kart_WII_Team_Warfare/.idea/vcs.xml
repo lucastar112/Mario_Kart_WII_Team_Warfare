@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Mario_Kart_WII_Team_Warfare/AI-Kart-WII" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../../libraries/GameManager.Dolphin" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../../libraries/GameManager.Shared" vcs="Git" />
+  </component>
+</project>
