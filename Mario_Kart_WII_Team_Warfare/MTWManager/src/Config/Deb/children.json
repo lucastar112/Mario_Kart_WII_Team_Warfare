@@ -19,6 +19,15 @@
         },
 
         {
+            "Name": "AI-Kart-WIIManager",
+            "Enabled": true,
+            "Path": "games\\MTW\\DEV\\childrens\\AI-Kart-WIIManager\\AI-Kart-WIIManager.exe",
+            "Arguments": "",
+            "ipc": true,
+            "required": false
+        },
+
+        {
             "Name": "DebugManager",
             "Enabled": true,
             "Path": "games\\MTW\\DEV\\childrens\\DebugManager\\DebugManager.exe",
