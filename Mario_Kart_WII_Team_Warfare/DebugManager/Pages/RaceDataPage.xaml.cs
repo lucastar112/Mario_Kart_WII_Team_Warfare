@@ -83,7 +83,7 @@ public partial class RaceDataPage : Page, INotifyPropertyChanged
         Console.WriteLine("[RaceDataPage] Connecting...");
         await gameManager.ConnectAsync(cancellationToken);
         Console.WriteLine("[RaceDataPage] Connected.");
-        RaceDataService raceDataService = new(gameManager);
+        RaceDataService raceDataService = new (gameManager);
 
         while (!cancellationToken.IsCancellationRequested)
         {

@@ -27,23 +27,15 @@ public sealed class RaceDataService
 
             Console.WriteLine("[RaceData] Checking race data state...");
 
-            JsonElement gameStateValue =
-                await _gameManager.GetAsync<JsonElement>(
-                    "GameState",
-                    cancellationToken: cancellationToken);
+            JsonElement gameStateValue = await _gameManager.GetAsync<JsonElement>("GameState", cancellationToken: cancellationToken);
 
             byte state;
 
-            if (gameStateValue.ValueKind == JsonValueKind.Number &&
-                gameStateValue.TryGetByte(out byte numericState))
-            {
+            if (gameStateValue.ValueKind == JsonValueKind.Number && gameStateValue.TryGetByte(out byte numericState))
                 state = numericState;
-            }
             else
             {
-                Console.WriteLine(
-                    $"[RaceData] Invalid GameState value: {gameStateValue}");
-
+                Console.WriteLine($"[RaceData] Invalid GameState value: {gameStateValue}");
                 return [];
             }
 
@@ -51,9 +43,7 @@ public sealed class RaceDataService
 
             if (state != 2)
             {
-                Console.WriteLine(
-                    "[RaceData] Race data is not ready. Waiting for cache...");
-
+                Console.WriteLine("[RaceData] Race data is not ready. Waiting for cache...");
                 return [];
             }
 
@@ -76,9 +66,7 @@ public sealed class RaceDataService
                 try
                 {
                     characterValue = await _gameManager.GetPlayersIdAsync(playerSlot, cancellationToken);
-
                     vehicleValue = await _gameManager.GetVehiclesIdAsync(playerSlot, cancellationToken);
-
                     teamValue = await _gameManager.GetTeamIdAsync(playerSlot, cancellationToken);
                 }
                 catch (Exception exception)
@@ -143,7 +131,6 @@ public sealed class RaceDataService
     {
         if (value.ValueKind == JsonValueKind.Number && value.TryGetUInt32(out result))
             return true;
-        
 
         result = 0;
         return false;
