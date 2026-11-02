@@ -19,13 +19,8 @@ namespace MTW.Memory
         // Racedata offsets
         private static readonly IntPtr RaceDataSInstance = new IntPtr(0x809bd728);
         private static readonly int RaceSInstanceOffset = 0x00;
-<<<<<<< Updated upstream
-        private static readonly int RaceDataPlayersArray = 0x08;
-        private static readonly int RaceDataPlyerOffset = 0xF0;
-=======
         private static readonly int RaceDataPlayersArray = 0x8 + 0x20;
         private static readonly int RaceDataPlayerOffset = 0xF0;
->>>>>>> Stashed changes
 
         private readonly DolphinConnection _dolphin;
 
@@ -106,19 +101,7 @@ namespace MTW.Memory
 
             Console.WriteLine($"Race instance: 0x{raceSInstance.ToInt64():X8}");
 
-<<<<<<< Updated upstream
-            if (!_dolphin.TryReadPointer(raceSInstance, RaceDataPlayersArray, out IntPtr playerArray))
-            {
-                Console.WriteLine("Failed to resolve player pointer array.");
-                return false;
-            }
-
-            Console.WriteLine($"Player pointer array: 0x{playerArray.ToInt64():X8}");
-
-            raceData = new IntPtr(playerArray.ToInt64() + playerId * RaceDataPlyerOffset);
-=======
             raceData = new IntPtr(raceSInstance.ToInt64() + RaceDataPlayersArray + playerId * RaceDataPlayerOffset);
->>>>>>> Stashed changes
 
             Console.WriteLine($"Player {playerId} raceData address: 0x{raceData.ToInt64():X8}");
 
