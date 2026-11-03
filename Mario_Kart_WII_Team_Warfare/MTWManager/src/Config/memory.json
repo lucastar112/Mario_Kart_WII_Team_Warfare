@@ -1,45 +1,66 @@
 {
   "resources": {
     "GameState": {
-    "address": "0x80000CF6",
-    "type": "uint8",
-    "length": 1,
-    "availability": 0
-    },
-
-    "GameManagerHeartbeat": {
-      "address": "0x80000CF5",
-      "type": "Bool",
-      "length": 1,
-      "availability": 0
-    },
-
-    "RaceState": {
-      "address": "0x80ABCDEF",
       "type": "uint8",
       "length": 1,
-      "availability": 0
+      "availability": 0,
+      "address": "0x80000CF6",
+      "description": "MTW cache-build handshake state at this custom address; 0 idle, 1 build requested, 2 completed.",
+      "confidence": "confirmed"
     },
-
+    "GameManagerHeartbeat": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 0,
+      "address": "0x80000CF5",
+      "description": "Retained from the existing configuration at 0x80000CF5; the heartbeat protocol meaning was not independently established from this dump.",
+      "confidence": "uncertain"
+    },
     "GameId": {
-      "address": "0x80000000",
       "type": "string",
       "length": 6,
-      "availability": 0
+      "availability": 0,
+      "address": "0x80000000",
+      "description": "Game ID; dump bytes are MTWP01.",
+      "confidence": "confirmed"
     },
-
-    "PlayersId": {
-      "type": "uint32",
-      "length": 4,
+    "RaceDataUnknown4": {
+      "type": "uint8",
+      "length": 1,
       "availability": 1,
       "dynamic": true,
       "dynamicBase": "raceData",
       "offsets": [
-        "0xC"
-      ]
+        "0x4"
+      ],
+      "description": "RacedataPlayer field; offsets from mkw-structures racedata.h.",
+      "confidence": "confirmed"
     },
-
-    "VehiclesId": {
+    "LocalPlayerNumber": {
+      "type": "int8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0x5"
+      ],
+      "description": "RacedataPlayer field; offsets from mkw-structures racedata.h.",
+      "confidence": "confirmed"
+    },
+    "ControllerId": {
+      "type": "int8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0x6"
+      ],
+      "description": "RacedataPlayer field; offsets from mkw-structures racedata.h.",
+      "confidence": "confirmed"
+    },
+    "VehicleId": {
       "type": "uint32",
       "length": 4,
       "availability": 1,
@@ -47,9 +68,34 @@
       "dynamicBase": "raceData",
       "offsets": [
         "0x8"
-      ]
+      ],
+      "description": "RacedataPlayer field; offsets from mkw-structures racedata.h.",
+      "confidence": "confirmed"
     },
-
+    "CharacterId": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0xC"
+      ],
+      "description": "RacedataPlayer field; offsets from mkw-structures racedata.h.",
+      "confidence": "confirmed"
+    },
+    "PlayerType": {
+      "type": "int32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0x10"
+      ],
+      "description": "RacedataPlayer field; offsets from mkw-structures racedata.h.",
+      "confidence": "confirmed"
+    },
     "TeamId": {
       "type": "int32",
       "length": 4,
@@ -58,7 +104,4294 @@
       "dynamicBase": "raceData",
       "offsets": [
         "0xCC"
-      ]
+      ],
+      "description": "RacedataPlayer field; offsets from mkw-structures racedata.h.",
+      "confidence": "confirmed"
+    },
+    "PreviousScore": {
+      "type": "uint16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0xD8"
+      ],
+      "description": "RacedataPlayer field; offsets from mkw-structures racedata.h.",
+      "confidence": "confirmed"
+    },
+    "Score": {
+      "type": "uint16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0xDA"
+      ],
+      "description": "RacedataPlayer field; offsets from mkw-structures racedata.h.",
+      "confidence": "confirmed"
+    },
+    "GpRankScore": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0xDE"
+      ],
+      "description": "RacedataPlayer field; offsets from mkw-structures racedata.h.",
+      "confidence": "confirmed"
+    },
+    "PreviousFinishPosition": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0xE0"
+      ],
+      "description": "RacedataPlayer field; offsets from mkw-structures racedata.h.",
+      "confidence": "confirmed"
+    },
+    "Rating": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0xE8"
+      ],
+      "description": "RacedataPlayer field; offsets from mkw-structures racedata.h.",
+      "confidence": "confirmed"
+    },
+    "RaceInfoPlayerId": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x8"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "RaceCheckpoint": {
+      "type": "uint16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0xA"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "RaceCompletion": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0xC"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "RaceCompletionMax": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x10"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "FirstKcpLapCompletion": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x14"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "NextCheckpointLapCompletion": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x18"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "NextCheckpointLapCompletionMax": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x1C"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "RacePosition": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x20"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "RespawnState": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x21"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "BattleScore": {
+      "type": "uint16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x22"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "CurrentLap": {
+      "type": "uint16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x24"
+      ],
+      "description": "Original mkw-structures declaration for RaceinfoPlayer::currentLap. The supplied dump reads 0x0100 for apparent lap 1, so the field width/byte interpretation remains uncertain.",
+      "confidence": "uncertain"
+    },
+    "MaxLap": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x26"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "CurrentKcp": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x27"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "MaxKcp": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x28"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "RaceFrameCounter": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x2C"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "FramesInFirst": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x30"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "RaceStateFlags": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x38"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "LapFinishTimesPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x3C"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "RaceFinishTimePointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x40"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "ControllerHolderPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x48"
+      ],
+      "description": "RaceinfoPlayer field; offsets from mkw-structures raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "SpeedMultiplier": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x10"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "BaseSpeed": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x14"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "SoftSpeedLimit": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x18"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "VehicleSpeed": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x20"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "LastSpeed": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x24"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "HardSpeedLimit": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x2C"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "Acceleration": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x30"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "SpeedDragMultiplier": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x34"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "HasLandingDirection": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x98"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "OutsideDriftAngle": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x9C"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "LandingAngle": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xA0"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "SpeedRatioCapped": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xB0"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "SpeedRatio": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xB4"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "KclSpeedFactor": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xB8"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "KclRotationFactor": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xBC"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "KclWheelSpeedFactor": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xC0"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "KclWheelRotationFactor": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xC4"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "FloorCollisionCount": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xC8"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "HopStickX": {
+      "type": "int32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xCC"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "HopFrame": {
+      "type": "int32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xD0"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "SlipstreamCharge": {
+      "type": "int32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xEC"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "DivingRotation": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xF4"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "BoostRotation": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xF8"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "DriftState": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xFC"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "MtCharge": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xFE"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "SmtCharge": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x100"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "MtBoost": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x102"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "OutsideDriftBonus": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x104"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "ZipperBoost": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x12C"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "ZipperBoostMax": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x12E"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "OffroadInvincibilityFrames": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x148"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "SsmtCharge": {
+      "type": "uint16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x14C"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "EffectiveTurn": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x158"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "ConservedTurn": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x15C"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "SomeScale": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x174"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "ShockSpeedMultiplier": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x178"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "MegaScale": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x17C"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "MushroomBoostTimer2": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x188"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "StarTimer": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x18A"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "ShockTimer": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x18C"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "BlooperCharacterInkTimer": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x18E"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "BlooperStateFlag": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x190"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "CrushTimer": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x192"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "MegaTimer": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x194"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "JumpPadMinSpeed": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x1B0"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "JumpPadMaxSpeed": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x1B4"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "JumpPadPropertyMinSpeed": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x1C0"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "JumpPadPropertyMaxSpeed": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x1C4"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "JumpPadPropertyVerticalVelocity": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x1C8"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "RampBoost": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x1CC"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "HopVerticalVelocity": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x228"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "HopPositionY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x22C"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "HopGravity": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x230"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "DrivingDirection": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x24C"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "BackwardsAllowCounter": {
+      "type": "uint16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x250"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "SpecialFloorFlags": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x254"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x258"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "ZipperPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x25C"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "RawTurn": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x288"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "GhostVanishTimer": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x290"
+      ],
+      "description": "PlayerSub10 field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "SmoothedUpX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x38"
+      ],
+      "description": "SmoothedUp vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "SmoothedUpY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x3C"
+      ],
+      "description": "SmoothedUp vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "SmoothedUpZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x40"
+      ],
+      "description": "SmoothedUp vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "UpX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x44"
+      ],
+      "description": "Up vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "UpY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x48"
+      ],
+      "description": "Up vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "UpZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x4C"
+      ],
+      "description": "Up vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "LandingDirectionX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x50"
+      ],
+      "description": "LandingDirection vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "LandingDirectionY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x54"
+      ],
+      "description": "LandingDirection vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "LandingDirectionZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x58"
+      ],
+      "description": "LandingDirection vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "DirectionX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x5C"
+      ],
+      "description": "Direction vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "DirectionY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x60"
+      ],
+      "description": "Direction vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "DirectionZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x64"
+      ],
+      "description": "Direction vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "LastDirectionX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x68"
+      ],
+      "description": "LastDirection vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "LastDirectionY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x6C"
+      ],
+      "description": "LastDirection vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "LastDirectionZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x70"
+      ],
+      "description": "LastDirection vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity1DirectionX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x74"
+      ],
+      "description": "Velocity1Direction vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity1DirectionY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x78"
+      ],
+      "description": "Velocity1Direction vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity1DirectionZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x7C"
+      ],
+      "description": "Velocity1Direction vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "DirectionDifferenceX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x8C"
+      ],
+      "description": "DirectionDifference vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "DirectionDifferenceY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x90"
+      ],
+      "description": "DirectionDifference vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "DirectionDifferenceZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x94"
+      ],
+      "description": "DirectionDifference vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "OutsideDriftLastDirectionX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xA4"
+      ],
+      "description": "OutsideDriftLastDirection vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "OutsideDriftLastDirectionY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xA8"
+      ],
+      "description": "OutsideDriftLastDirection vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "OutsideDriftLastDirectionZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xAC"
+      ],
+      "description": "OutsideDriftLastDirection vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "HopUpX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xD4"
+      ],
+      "description": "HopUp vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "HopUpY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xD8"
+      ],
+      "description": "HopUp vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "HopUpZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xDC"
+      ],
+      "description": "HopUp vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "HopDirectionX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xE0"
+      ],
+      "description": "HopDirection vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "HopDirectionY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xE4"
+      ],
+      "description": "HopDirection vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "HopDirectionZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xE8"
+      ],
+      "description": "HopDirection vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "ScaleX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x160"
+      ],
+      "description": "Scale vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "ScaleY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x164"
+      ],
+      "description": "Scale vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "ScaleZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x168"
+      ],
+      "description": "Scale vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "BoostFrame0": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x10C"
+      ],
+      "description": "PlayerBoost.frames[] timer.",
+      "confidence": "confirmed"
+    },
+    "BoostFrame1": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x10E"
+      ],
+      "description": "PlayerBoost.frames[] timer.",
+      "confidence": "confirmed"
+    },
+    "BoostFrame2": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x110"
+      ],
+      "description": "PlayerBoost.frames[] timer.",
+      "confidence": "confirmed"
+    },
+    "BoostFrame3": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x112"
+      ],
+      "description": "PlayerBoost.frames[] timer.",
+      "confidence": "confirmed"
+    },
+    "BoostFrame4": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x114"
+      ],
+      "description": "PlayerBoost.frames[] timer.",
+      "confidence": "confirmed"
+    },
+    "BoostFrame5": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x116"
+      ],
+      "description": "PlayerBoost.frames[] timer.",
+      "confidence": "confirmed"
+    },
+    "BoostTypes": {
+      "type": "uint16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x118"
+      ],
+      "description": "PlayerBoost type bitfield.",
+      "confidence": "confirmed"
+    },
+    "BoostMultiplier": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x11C"
+      ],
+      "confidence": "confirmed"
+    },
+    "BoostAcceleration": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x120"
+      ],
+      "confidence": "confirmed"
+    },
+    "BoostSpeedLimit": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x128"
+      ],
+      "confidence": "confirmed"
+    },
+    "InputFlags0": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x4"
+      ],
+      "description": "PlayerSub1c field; bitfield definitions in player.h.",
+      "confidence": "confirmed"
+    },
+    "InputFlags1": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x8"
+      ],
+      "description": "PlayerSub1c field; bitfield definitions in player.h.",
+      "confidence": "confirmed"
+    },
+    "InputFlags2": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0xC"
+      ],
+      "description": "PlayerSub1c field; bitfield definitions in player.h.",
+      "confidence": "confirmed"
+    },
+    "InputFlags3": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x10"
+      ],
+      "description": "PlayerSub1c field; bitfield definitions in player.h.",
+      "confidence": "confirmed"
+    },
+    "PlayerControlFlags": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x14"
+      ],
+      "description": "PlayerSub1c field; bitfield definitions in player.h.",
+      "confidence": "confirmed"
+    },
+    "AirTime": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x1C"
+      ],
+      "description": "PlayerSub1c field; bitfield definitions in player.h.",
+      "confidence": "confirmed"
+    },
+    "HorizontalWallGlitchTimer": {
+      "type": "int32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x6C"
+      ],
+      "description": "PlayerSub1c field; bitfield definitions in player.h.",
+      "confidence": "confirmed"
+    },
+    "BoostRampType": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x74"
+      ],
+      "description": "PlayerSub1c field; bitfield definitions in player.h.",
+      "confidence": "confirmed"
+    },
+    "JumpPadType": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x78"
+      ],
+      "description": "PlayerSub1c field; bitfield definitions in player.h.",
+      "confidence": "confirmed"
+    },
+    "CheckpointId": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x80"
+      ],
+      "description": "PlayerSub1c field; bitfield definitions in player.h.",
+      "confidence": "confirmed"
+    },
+    "StickX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x88"
+      ],
+      "description": "PlayerSub1c field; bitfield definitions in player.h.",
+      "confidence": "confirmed"
+    },
+    "StickY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x8C"
+      ],
+      "description": "PlayerSub1c field; bitfield definitions in player.h.",
+      "confidence": "confirmed"
+    },
+    "StartBoostCharge": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x9C"
+      ],
+      "description": "PlayerSub1c field; bitfield definitions in player.h.",
+      "confidence": "confirmed"
+    },
+    "StartBoostIndex": {
+      "type": "int32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0xA0"
+      ],
+      "description": "PlayerSub1c field; bitfield definitions in player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickableTimer": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0xA4"
+      ],
+      "description": "Offset is contradictory in source comments; verify before relying on it.",
+      "confidence": "uncertain"
+    },
+    "SurfaceProperties": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub18",
+      "offsets": [
+        "0x2C"
+      ],
+      "description": "PlayerSub18 field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "PreRespawnTimer": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub18",
+      "offsets": [
+        "0x48"
+      ],
+      "description": "PlayerSub18 field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "SolidOutOfBoundsTimer": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub18",
+      "offsets": [
+        "0x4A"
+      ],
+      "description": "PlayerSub18 field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "IsBike": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "PlayerParams field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "ParameterVehicleId": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0x4"
+      ],
+      "description": "PlayerParams field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "ParameterCharacterId": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0x8"
+      ],
+      "description": "PlayerParams field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "WheelCount0": {
+      "type": "uint16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0xC"
+      ],
+      "description": "PlayerParams field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "WheelCount1": {
+      "type": "uint16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0xE"
+      ],
+      "description": "PlayerParams field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "PlayerIndex": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0x10"
+      ],
+      "description": "PlayerParams field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "StatsAndBspPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0x14"
+      ],
+      "description": "PlayerParams field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "KartDriverDisplayParamsPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0x1C"
+      ],
+      "description": "PlayerParams field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "KartPartsDisplayParamsPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0x20"
+      ],
+      "description": "PlayerParams field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "BikePartsDisplayParamsPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0x24"
+      ],
+      "description": "PlayerParams field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "DriverDisplayParamsPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0x28"
+      ],
+      "description": "PlayerParams field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "WheelCountReciprocal": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0x2C"
+      ],
+      "description": "PlayerParams field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "WheelCountPlusOneReciprocal": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0x30"
+      ],
+      "description": "PlayerParams field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "GpStatsPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0x34"
+      ],
+      "description": "PlayerParams field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "PhysicsHolderPositionX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysicsHolder",
+      "offsets": [
+        "0x18"
+      ],
+      "description": "PhysicsHolderPosition vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "PhysicsHolderPositionY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysicsHolder",
+      "offsets": [
+        "0x1C"
+      ],
+      "description": "PhysicsHolderPosition vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "PhysicsHolderPositionZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysicsHolder",
+      "offsets": [
+        "0x20"
+      ],
+      "description": "PhysicsHolderPosition vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "PhysicsHolderSpeedX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysicsHolder",
+      "offsets": [
+        "0xEC"
+      ],
+      "description": "PhysicsHolderSpeed vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "PhysicsHolderSpeedY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysicsHolder",
+      "offsets": [
+        "0xF0"
+      ],
+      "description": "PhysicsHolderSpeed vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "PhysicsHolderSpeedZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysicsHolder",
+      "offsets": [
+        "0xF4"
+      ],
+      "description": "PhysicsHolderSpeed vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "PlayerPhysicsPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysicsHolder",
+      "offsets": [
+        "0x4"
+      ],
+      "confidence": "confirmed"
+    },
+    "HitboxGroupPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysicsHolder",
+      "offsets": [
+        "0x8"
+      ],
+      "confidence": "confirmed"
+    },
+    "PhysicsRotationSpeed": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x64"
+      ],
+      "confidence": "confirmed"
+    },
+    "PhysicsSpeedNorm": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xE0"
+      ],
+      "confidence": "confirmed"
+    },
+    "PhysicsGravity": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x148"
+      ],
+      "confidence": "confirmed"
+    },
+    "PhysicsStabilizationFactor": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x178"
+      ],
+      "confidence": "confirmed"
+    },
+    "PhysicsPositionX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x68"
+      ],
+      "description": "PhysicsPosition vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "PhysicsPositionY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x6C"
+      ],
+      "description": "PhysicsPosition vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "PhysicsPositionZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x70"
+      ],
+      "description": "PhysicsPosition vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity0X": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x74"
+      ],
+      "description": "Velocity0 vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity0Y": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x78"
+      ],
+      "description": "Velocity0 vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity0Z": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x7C"
+      ],
+      "description": "Velocity0 vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "RotationVector0X": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xA4"
+      ],
+      "description": "RotationVector0 vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "RotationVector0Y": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xA8"
+      ],
+      "description": "RotationVector0 vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "RotationVector0Z": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xAC"
+      ],
+      "description": "RotationVector0 vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity2X": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xB0"
+      ],
+      "description": "Velocity2 vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity2Y": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xB4"
+      ],
+      "description": "Velocity2 vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity2Z": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xB8"
+      ],
+      "description": "Velocity2 vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "RotationVector1X": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xBC"
+      ],
+      "description": "RotationVector1 vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "RotationVector1Y": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xC0"
+      ],
+      "description": "RotationVector1 vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "RotationVector1Z": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xC4"
+      ],
+      "description": "RotationVector1 vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity3X": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xC8"
+      ],
+      "description": "Velocity3 vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity3Y": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xCC"
+      ],
+      "description": "Velocity3 vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity3Z": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xD0"
+      ],
+      "description": "Velocity3 vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "VelocityX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xD4"
+      ],
+      "description": "Velocity vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "VelocityY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xD8"
+      ],
+      "description": "Velocity vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "VelocityZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xDC"
+      ],
+      "description": "Velocity vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "RotationVector2X": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xE4"
+      ],
+      "description": "RotationVector2 vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "RotationVector2Y": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xE8"
+      ],
+      "description": "RotationVector2 vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "RotationVector2Z": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xEC"
+      ],
+      "description": "RotationVector2 vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "NormalAccelerationX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x110"
+      ],
+      "description": "NormalAcceleration vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "NormalAccelerationY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x114"
+      ],
+      "description": "NormalAcceleration vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "NormalAccelerationZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x118"
+      ],
+      "description": "NormalAcceleration vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "NormalRotationVectorX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x11C"
+      ],
+      "description": "NormalRotationVector vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "NormalRotationVectorY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x120"
+      ],
+      "description": "NormalRotationVector vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "NormalRotationVectorZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x124"
+      ],
+      "description": "NormalRotationVector vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity1X": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x14C"
+      ],
+      "description": "Velocity1 vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity1Y": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x150"
+      ],
+      "description": "Velocity1 vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Velocity1Z": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x154"
+      ],
+      "description": "Velocity1 vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Speed1AdjustedX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x17C"
+      ],
+      "description": "Speed1Adjusted vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Speed1AdjustedY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x180"
+      ],
+      "description": "Speed1Adjusted vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "Speed1AdjustedZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x184"
+      ],
+      "description": "Speed1Adjusted vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "MainRotationX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xF0"
+      ],
+      "description": "Quaternion component.",
+      "confidence": "confirmed"
+    },
+    "MainRotationY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xF4"
+      ],
+      "description": "Quaternion component.",
+      "confidence": "confirmed"
+    },
+    "MainRotationZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xF8"
+      ],
+      "description": "Quaternion component.",
+      "confidence": "confirmed"
+    },
+    "MainRotationW": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0xFC"
+      ],
+      "description": "Quaternion component.",
+      "confidence": "confirmed"
+    },
+    "FullRotationX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x100"
+      ],
+      "description": "Quaternion component.",
+      "confidence": "confirmed"
+    },
+    "FullRotationY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x104"
+      ],
+      "description": "Quaternion component.",
+      "confidence": "confirmed"
+    },
+    "FullRotationZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x108"
+      ],
+      "description": "Quaternion component.",
+      "confidence": "confirmed"
+    },
+    "FullRotationW": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x10C"
+      ],
+      "description": "Quaternion component.",
+      "confidence": "confirmed"
+    },
+    "SpecialRotationX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x128"
+      ],
+      "description": "Quaternion component.",
+      "confidence": "confirmed"
+    },
+    "SpecialRotationY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x12C"
+      ],
+      "description": "Quaternion component.",
+      "confidence": "confirmed"
+    },
+    "SpecialRotationZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x130"
+      ],
+      "description": "Quaternion component.",
+      "confidence": "confirmed"
+    },
+    "SpecialRotationW": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x134"
+      ],
+      "description": "Quaternion component.",
+      "confidence": "confirmed"
+    },
+    "RaceInfoTimer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfo",
+      "offsets": [
+        "0x20"
+      ],
+      "description": "Raceinfo global field.",
+      "confidence": "confirmed"
+    },
+    "RaceInfoStage": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfo",
+      "offsets": [
+        "0x28"
+      ],
+      "description": "Raceinfo global field.",
+      "confidence": "confirmed"
+    },
+    "CanCountdownStart": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfo",
+      "offsets": [
+        "0x2E"
+      ],
+      "description": "Raceinfo global field.",
+      "confidence": "confirmed"
+    },
+    "CutSceneMode": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfo",
+      "offsets": [
+        "0x2F"
+      ],
+      "description": "Raceinfo global field.",
+      "confidence": "confirmed"
+    },
+    "RaceInfoPlayerArrayPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfo",
+      "offsets": [
+        "0xC"
+      ],
+      "description": "Raceinfo global field.",
+      "confidence": "confirmed"
+    },
+    "PlayerIdInEachPositionPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfo",
+      "offsets": [
+        "0x18"
+      ],
+      "description": "Raceinfo global field.",
+      "confidence": "confirmed"
+    },
+    "RaceInfoIntroTimer": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfo",
+      "offsets": [
+        "0x1E"
+      ],
+      "description": "Raceinfo global field.",
+      "confidence": "confirmed"
+    },
+    "RaceDataPlayerCount": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataScenario",
+      "offsets": [
+        "0x4"
+      ],
+      "confidence": "confirmed"
+    },
+    "RaceDataLocalPlayerCount": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataScenario",
+      "offsets": [
+        "0x6"
+      ],
+      "confidence": "confirmed"
+    },
+    "CourseId": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataSettings",
+      "offsets": [
+        "0x0"
+      ],
+      "confidence": "confirmed"
+    },
+    "EngineClass": {
+      "type": "int32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataSettings",
+      "offsets": [
+        "0x4"
+      ],
+      "confidence": "confirmed"
+    },
+    "GameMode": {
+      "type": "int32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataSettings",
+      "offsets": [
+        "0x8"
+      ],
+      "confidence": "confirmed"
+    },
+    "BattleType": {
+      "type": "int32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataSettings",
+      "offsets": [
+        "0x10"
+      ],
+      "confidence": "confirmed"
+    },
+    "CpuMode": {
+      "type": "int32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataSettings",
+      "offsets": [
+        "0x14"
+      ],
+      "confidence": "confirmed"
+    },
+    "ItemMode": {
+      "type": "int32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataSettings",
+      "offsets": [
+        "0x18"
+      ],
+      "confidence": "confirmed"
+    },
+    "HudPlayerId0": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataSettings",
+      "offsets": [
+        "0x1C"
+      ],
+      "confidence": "confirmed"
+    },
+    "HudPlayerId1": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataSettings",
+      "offsets": [
+        "0x1D"
+      ],
+      "confidence": "confirmed"
+    },
+    "HudPlayerId2": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataSettings",
+      "offsets": [
+        "0x1E"
+      ],
+      "confidence": "confirmed"
+    },
+    "HudPlayerId3": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataSettings",
+      "offsets": [
+        "0x1F"
+      ],
+      "confidence": "confirmed"
+    },
+    "CupId": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataSettings",
+      "offsets": [
+        "0x20"
+      ],
+      "confidence": "confirmed"
+    },
+    "RaceNumber": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataSettings",
+      "offsets": [
+        "0x24"
+      ],
+      "confidence": "confirmed"
+    },
+    "LapCount": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataSettings",
+      "offsets": [
+        "0x25"
+      ],
+      "confidence": "confirmed"
+    },
+    "RaceModeFlags": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataSettings",
+      "offsets": [
+        "0x28"
+      ],
+      "confidence": "confirmed"
+    },
+    "BikeLeanRotation": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10BikeExtension",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Bike-only PlayerSub10 extension; derived from inherited class layout and requires confirmation.",
+      "confidence": "uncertain"
+    },
+    "BikeLeanRotationCap": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10BikeExtension",
+      "offsets": [
+        "0x4"
+      ],
+      "description": "Bike-only PlayerSub10 extension; derived from inherited class layout and requires confirmation.",
+      "confidence": "uncertain"
+    },
+    "BikeLeanRotationIncrement": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10BikeExtension",
+      "offsets": [
+        "0x8"
+      ],
+      "description": "Bike-only PlayerSub10 extension; derived from inherited class layout and requires confirmation.",
+      "confidence": "uncertain"
+    },
+    "BikeWheelieRotation": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10BikeExtension",
+      "offsets": [
+        "0xC"
+      ],
+      "description": "Bike-only PlayerSub10 extension; derived from inherited class layout and requires confirmation.",
+      "confidence": "uncertain"
+    },
+    "BikeMaxWheelieRotation": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10BikeExtension",
+      "offsets": [
+        "0x10"
+      ],
+      "description": "Bike-only PlayerSub10 extension; derived from inherited class layout and requires confirmation.",
+      "confidence": "uncertain"
+    },
+    "BikeWheelieTimer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10BikeExtension",
+      "offsets": [
+        "0x14"
+      ],
+      "description": "Bike-only PlayerSub10 extension; derived from inherited class layout and requires confirmation.",
+      "confidence": "uncertain"
+    },
+    "BikeWheelieFlag": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10BikeExtension",
+      "offsets": [
+        "0x18"
+      ],
+      "description": "Bike-only PlayerSub10 extension; derived from inherited class layout and requires confirmation.",
+      "confidence": "uncertain"
+    },
+    "BikeWheelieTimer2": {
+      "type": "uint16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10BikeExtension",
+      "offsets": [
+        "0x20"
+      ],
+      "description": "Bike-only PlayerSub10 extension; derived from inherited class layout and requires confirmation.",
+      "confidence": "uncertain"
+    },
+    "BikeWheelieCooldown": {
+      "type": "uint16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10BikeExtension",
+      "offsets": [
+        "0x22"
+      ],
+      "description": "Bike-only PlayerSub10 extension; derived from inherited class layout and requires confirmation.",
+      "confidence": "uncertain"
+    },
+    "BikeTurnParamsPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10BikeExtension",
+      "offsets": [
+        "0x2C"
+      ],
+      "description": "Bike-only PlayerSub10 extension; derived from inherited class layout and requires confirmation.",
+      "confidence": "uncertain"
+    },
+    "PlayersId": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0xC"
+      ],
+      "description": "Legacy API alias for CharacterId; kept for existing DebugManager callers.",
+      "confidence": "confirmed"
+    },
+    "VehiclesId": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0x8"
+      ],
+      "description": "Legacy API alias for VehicleId; kept for existing DebugManager callers.",
+      "confidence": "confirmed"
+    },
+    "PlayerPointersPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "player",
+      "offsets": [
+        "0x0"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSubPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "player",
+      "offsets": [
+        "0x10"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerParamsInlinePointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "player",
+      "offsets": [
+        "0x14"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerParamsPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPointers",
+      "offsets": [
+        "0x0"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub1cPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPointers",
+      "offsets": [
+        "0x4"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerGraphicsPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPointers",
+      "offsets": [
+        "0x8"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerWheels0ArrayPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPointers",
+      "offsets": [
+        "0xC"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerWheels1ArrayPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPointers",
+      "offsets": [
+        "0x10"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerPointersUnknown14": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPointers",
+      "offsets": [
+        "0x14"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSubFromPointers": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPointers",
+      "offsets": [
+        "0x18"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerPointersUnknown1c": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPointers",
+      "offsets": [
+        "0x1C"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerPointersUnknown20": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPointers",
+      "offsets": [
+        "0x20"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerPointersUnknown24": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPointers",
+      "offsets": [
+        "0x24"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub10Pointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPointers",
+      "offsets": [
+        "0x28"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub14Pointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPointers",
+      "offsets": [
+        "0x2C"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub18Pointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPointers",
+      "offsets": [
+        "0x30"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSubPointersPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub",
+      "offsets": [
+        "0x0"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub10FromPlayerSub": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub",
+      "offsets": [
+        "0x10"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub14FromPlayerSub": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub",
+      "offsets": [
+        "0x14"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub18FromPlayerSub": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub",
+      "offsets": [
+        "0x18"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub1cFromPlayerSub": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub",
+      "offsets": [
+        "0x1C"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub10PlayerPointers": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x0"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub10UnknownPointer4": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x4"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub10UnknownPointer8": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x8"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub10VTable": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0xC"
+      ],
+      "confidence": "confirmed"
+    },
+    "GraphicsPhysicsHolderPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerGraphics",
+      "offsets": [
+        "0x90"
+      ],
+      "confidence": "confirmed"
+    },
+    "PhysicsHolderVTable": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysicsHolder",
+      "offsets": [
+        "0x0"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerPhysicsVTable": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x0"
+      ],
+      "confidence": "confirmed"
+    },
+    "RaceDataPlayerVTable": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0x0"
+      ],
+      "confidence": "confirmed"
+    },
+    "RaceInfoPlayerVTable": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x0"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub1cVTable": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x0"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub1cUnknownPointer18": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x18"
+      ],
+      "confidence": "confirmed"
+    },
+    "FloorNormalX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x28"
+      ],
+      "description": "FloorNormal vector component X; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "FloorNormalY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x2C"
+      ],
+      "description": "FloorNormal vector component Y; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "FloorNormalZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x30"
+      ],
+      "description": "FloorNormal vector component Z; PlayerSub10/physics structure.",
+      "confidence": "confirmed"
+    },
+    "PlayerSub18VTable": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub18",
+      "offsets": [
+        "0x0"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerSub18PlayerPointers": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub18",
+      "offsets": [
+        "0x4"
+      ],
+      "confidence": "confirmed"
+    },
+    "WheelForwardRotationSpeed": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerGraphics",
+      "offsets": [
+        "0x230"
+      ],
+      "confidence": "confirmed"
+    },
+    "WheelBackwardRotationSpeed": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerGraphics",
+      "offsets": [
+        "0x234"
+      ],
+      "confidence": "confirmed"
+    },
+    "TrickVTable": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0xC"
+      ],
+      "description": "PlayerTrick field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickType": {
+      "type": "int32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x10"
+      ],
+      "description": "PlayerTrick field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickCategory": {
+      "type": "int32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x14"
+      ],
+      "description": "PlayerTrick field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickNextDirection": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x18"
+      ],
+      "description": "PlayerTrick field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickNextTimer": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x1A"
+      ],
+      "description": "PlayerTrick field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickRotationDirection": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x1C"
+      ],
+      "description": "PlayerTrick field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickPropertiesPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x20"
+      ],
+      "description": "PlayerTrick field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickAngle": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x24"
+      ],
+      "description": "PlayerTrick field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickAngleDifference": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x28"
+      ],
+      "description": "PlayerTrick field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickAngleDifferenceMultiplier": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x2C"
+      ],
+      "description": "PlayerTrick field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickAngleDifferenceMultiplierDecay": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x30"
+      ],
+      "description": "PlayerTrick field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickMaximumAngle": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x34"
+      ],
+      "description": "PlayerTrick field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickCooldown": {
+      "type": "int16",
+      "length": 2,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x38"
+      ],
+      "description": "PlayerTrick field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickBoostRampEnabled": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x3A"
+      ],
+      "description": "PlayerTrick field; offsets from mkw-structures player.h.",
+      "confidence": "confirmed"
+    },
+    "TrickPlayerSub10Pointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x4C"
+      ],
+      "description": "PlayerTrick member pointer; this slot reads a non-RAM value in the local-player dump, so verify before use.",
+      "confidence": "uncertain"
+    },
+    "TrickRotationX": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x3C"
+      ],
+      "confidence": "confirmed"
+    },
+    "TrickRotationY": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x40"
+      ],
+      "confidence": "confirmed"
+    },
+    "TrickRotationZ": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x44"
+      ],
+      "confidence": "confirmed"
+    },
+    "TrickRotationW": {
+      "type": "single",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x48"
+      ],
+      "confidence": "confirmed"
+    },
+    "PlayerHolderPlayerArrayPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerHolder",
+      "offsets": [
+        "0x20"
+      ],
+      "description": "PlayerHolder field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "PlayerHolderPlayerCount": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerHolder",
+      "offsets": [
+        "0x24"
+      ],
+      "description": "PlayerHolder field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "PlayerHolderBitfield": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerHolder",
+      "offsets": [
+        "0x28"
+      ],
+      "description": "PlayerHolder field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "PlayerHolderArray0Pointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerHolder",
+      "offsets": [
+        "0x2C"
+      ],
+      "description": "PlayerHolder field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "PlayerHolderArray1Pointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerHolder",
+      "offsets": [
+        "0x30"
+      ],
+      "description": "PlayerHolder field; offsets from player.h.",
+      "confidence": "confirmed"
+    },
+    "PlayerHolderRaw": {
+      "type": "bytes",
+      "length": 56,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerHolder",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x38 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "PlayerRaw": {
+      "type": "bytes",
+      "length": 128,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "player",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x80 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "PlayerPointersRaw": {
+      "type": "bytes",
+      "length": 100,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPointers",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x64 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "PlayerSubRaw": {
+      "type": "bytes",
+      "length": 156,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x9c bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "PlayerSub10Raw": {
+      "type": "bytes",
+      "length": 660,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x294 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "PlayerSub14Raw": {
+      "type": "bytes",
+      "length": 256,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub14",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x100 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "PlayerSub18Raw": {
+      "type": "bytes",
+      "length": 116,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub18",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x74 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "PlayerSub1cRaw": {
+      "type": "bytes",
+      "length": 192,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub1c",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0xc0 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "PlayerParamsRaw": {
+      "type": "bytes",
+      "length": 60,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerParams",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x3c bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "PlayerGraphicsRaw": {
+      "type": "bytes",
+      "length": 864,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerGraphics",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x360 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "PlayerPhysicsHolderRaw": {
+      "type": "bytes",
+      "length": 256,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysicsHolder",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x100 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "PlayerPhysicsRaw": {
+      "type": "bytes",
+      "length": 436,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerPhysics",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x1b4 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "PlayerTrickRaw": {
+      "type": "bytes",
+      "length": 80,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerTrick",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x50 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "PlayerZipperRaw": {
+      "type": "bytes",
+      "length": 144,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerZipper",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x90 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "RaceDataPlayerRaw": {
+      "type": "bytes",
+      "length": 240,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceData",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0xf0 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "RaceDataScenarioRaw": {
+      "type": "bytes",
+      "length": 3056,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceDataScenario",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0xbf0 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "RaceInfoRaw": {
+      "type": "bytes",
+      "length": 76,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfo",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x4c bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "RaceInfoPlayerRaw": {
+      "type": "bytes",
+      "length": 84,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x54 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "confirmed"
+    },
+    "PlayerSub10BikeExtensionRaw": {
+      "type": "bytes",
+      "length": 48,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "playerSub10BikeExtension",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw structure bytes (0x30 bytes); useful for future reverse-engineering. Bike extension is only meaningful for bike slots.",
+      "confidence": "uncertain"
+    },
+    "RaceInfoVTable": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfo",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raceinfo object field; offsets from raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "RaceInfoRandom1Pointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfo",
+      "offsets": [
+        "0x4"
+      ],
+      "description": "Raceinfo object field; offsets from raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "RaceInfoRandom2Pointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfo",
+      "offsets": [
+        "0x8"
+      ],
+      "description": "Raceinfo object field; offsets from raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "RaceInfoGamemodeDataPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfo",
+      "offsets": [
+        "0x10"
+      ],
+      "description": "Raceinfo object field; offsets from raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "RaceInfoTimerManagerPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfo",
+      "offsets": [
+        "0x14"
+      ],
+      "description": "Raceinfo object field; offsets from raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "RaceInfoKmgHolderPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfo",
+      "offsets": [
+        "0x3C"
+      ],
+      "description": "Raceinfo object field; offsets from raceinfo.h.",
+      "confidence": "confirmed"
+    },
+    "ItemHandlerRaw": {
+      "type": "bytes",
+      "length": 388,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "itemHandler",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw ITEMHandler instance. Structure size/layout beyond documented members contains unknown bytes.",
+      "confidence": "partial"
+    },
+    "ItemHandlerSendPacketsRaw": {
+      "type": "bytes",
+      "length": 16,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "itemHandler",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "ITEMHandler::sendPackets[2], 8 bytes each. Packet field layout not supplied.",
+      "confidence": "partial"
+    },
+    "ItemHandlerRecvPacketsRaw": {
+      "type": "bytes",
+      "length": 96,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "itemHandler",
+      "offsets": [
+        "0x10"
+      ],
+      "description": "ITEMHandler::recvPackets[12], 8 bytes each. ITEMPacket field layout not supplied.",
+      "confidence": "partial"
+    },
+    "ItemHandlerTimesRaw": {
+      "type": "bytes",
+      "length": 48,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "itemHandler",
+      "offsets": [
+        "0xA0"
+      ],
+      "description": "ITEMHandler::times[12], uint32 entries; meaning not documented.",
+      "confidence": "partial"
+    },
+    "ItemPacketRaw": {
+      "type": "bytes",
+      "length": 8,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "itemPacket",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "One ITEMHandler::recvPackets[playerId] entry. Raw 8-byte packet; field decoding is unverified.",
+      "confidence": "uncertain"
+    },
+    "ItemHandlerPlayerTime": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "itemHandlerTime",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "ITEMHandler::times[playerId]; stored value exposed raw as uint32, semantic meaning unknown.",
+      "confidence": "uncertain"
+    },
+    "ItemHandlerInstancePointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "address": "0x809C20F8",
+      "description": "ITEMHandler::sInstance pointer location documented in itemhandler.h.",
+      "confidence": "confirmed"
+    },
+    "ItemBehaviourTableRaw": {
+      "type": "bytes",
+      "length": 532,
+      "availability": 1,
+      "address": "0x809C36A0",
+      "description": "ItemBehaviour itemBehaviourTable[19]; table base and 0x1C entry size documented in itembehaviour.h.",
+      "confidence": "confirmed"
+    },
+    "ItemSlotDataInstancePointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "address": "0x809C3670",
+      "description": "ItemSlotData::sInstance pointer location documented in itemslotdata.h.",
+      "confidence": "confirmed"
+    },
+    "ItemSlotDataRaw": {
+      "type": "bytes",
+      "length": 72,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "itemSlotData",
+      "offsets": [
+        "0x0"
+      ],
+      "description": "Raw ItemSlotData instance (0x48 bytes), layout documented in itemslotdata.h.",
+      "confidence": "confirmed"
+    },
+    "ItemSlotDataPlayerChancesRaw": {
+      "type": "bytes",
+      "length": 8,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "itemSlotData",
+      "offsets": [
+        "0x10"
+      ],
+      "description": "ItemSlotData::playerChances (columns + data pointer).",
+      "confidence": "confirmed"
+    },
+    "ItemSlotDataCpuChancesRaw": {
+      "type": "bytes",
+      "length": 8,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "itemSlotData",
+      "offsets": [
+        "0x18"
+      ],
+      "description": "ItemSlotData::cpuChances (columns + data pointer).",
+      "confidence": "confirmed"
+    },
+    "ItemSlotDataSpecialChancesRaw": {
+      "type": "bytes",
+      "length": 8,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "itemSlotData",
+      "offsets": [
+        "0x20"
+      ],
+      "description": "ItemSlotData::specialChances (columns + data pointer).",
+      "confidence": "confirmed"
+    },
+    "ItemSlotDataItemsInWheelPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "itemSlotData",
+      "offsets": [
+        "0x28"
+      ],
+      "description": "ItemSlotData::itemsInWheel pointer; target array begins with int32 count followed by item IDs.",
+      "confidence": "confirmed"
+    },
+    "ItemSlotDataSpecialBoxItemsInWheelPointer": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "itemSlotData",
+      "offsets": [
+        "0x2C"
+      ],
+      "description": "ItemSlotData::specialBoxItemsInWheel pointer; target layout is a series of count + item ID arrays.",
+      "confidence": "confirmed"
+    },
+    "ItemSlotDataSpawnTimersRaw": {
+      "type": "bytes",
+      "length": 16,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "itemSlotData",
+      "offsets": [
+        "0x34"
+      ],
+      "description": "ItemSlotData::itemSpawnTimers[4], uint32 frame timers: lightning, blue shell, blooper, POW.",
+      "confidence": "confirmed"
+    },
+    "ItemSlotDataPlayerCount": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "itemSlotData",
+      "offsets": [
+        "0x44"
+      ],
+      "description": "ItemSlotData::playerCount.",
+      "confidence": "confirmed"
+    },
+    "CurrentLapCandidate": {
+      "type": "uint8",
+      "length": 1,
+      "availability": 1,
+      "dynamic": true,
+      "dynamicBase": "raceInfoPlayer",
+      "offsets": [
+        "0x24"
+      ],
+      "description": "Dump-based candidate interpretation of currentLap as uint8 at +0x24; bytes +0x24/+0x25 are 01 00 for apparent lap 1. Use alongside documented CurrentLap uint16 for verification.",
+      "confidence": "uncertain"
+    },
+    "LeCodeTrackId": {
+      "type": "uint32",
+      "length": 4,
+      "availability": 0,
+      "address": "0x808F9420",
+      "description": "LE-CODE track slot ID returned by function at 0x808E7C24: lis r4,0x8090; lwz r4,-0x6BE0(r4); blr. Effective address is 0x808F9420. Stored as a 32-bit big-endian value; format as hexadecimal slot filename.",
+      "confidence": "confirmed"
+    }
+  },
+  "_notes": {
+    "addressing": "PowerPC big-endian. MEM1 0x80000000..0x817FFFFF; MEM2 0x90000000..0x93FFFFFF.",
+    "dump": "Mario Kart Wii Team Warfare PAL dump; game ID MTWP01; captured in a single-player race.",
+    "confidence": "confirmed means pointer/structure was observed or field offset is explicitly documented; uncertain fields are marked individually.",
+    "raceData": "dynamic base is the inline RacedataPlayer record for that player, not the Racedata singleton. CurrentLap discrepancy: mkw-structures labels RaceinfoPlayer::currentLap uint16 at +0x24, but supplied dump bytes +0x24/+0x25 are 01 00 for lap 1 while maxLap is at +0x26. UI uses first byte (+0x24) as a candidate uint8; CurrentLapDocumented16 retains the original uint16 read. Marked uncertain. CurrentLap discrepancy: mkw-structures labels RaceinfoPlayer::currentLap uint16 at +0x24, but supplied dump bytes +0x24/+0x25 are 01 00 for lap 1 while maxLap is at +0x26. CurrentLap preserves the documented uint16 read; CurrentLapCandidate reads the first byte (+0x24) as a candidate uint8 for the UI. Both are marked uncertain.",
+    "raceInfoPlayer": "dynamic base is the RaceinfoPlayer object pointer for that player.",
+    "RaceState": "the old 0x80ABCDEF value was a placeholder and has been removed; no real RaceState address was established.",
+    "PlayerSub14": "pointer is cached, but the supplied structures repository documents no member layout for PlayerSub14.",
+    "legacyAliases": "PlayersId is retained as an alias of CharacterId; VehiclesId is retained as an alias of VehicleId for the existing DebugManager.",
+    "PlayerTrick": "PlayerTrick pointers are non-null for all 12 slots in the supplied dump; the documented object fields are included.",
+    "PlayerSub1c": "PlayerSub1c includes a vtable at +0x00; bitfield0 begins at +0x04. The five bitfields were aligned to this observed layout.",
+    "TrickPlayerSub10Pointer": "PlayerTrick::playerSub10 pointer is inconsistent in local slot 0 and should be verified.",
+    "PlayerHolder": "PlayerHolder base is shared by all 12 slots; playerCount is 12 in the supplied dump.",
+    "rawBlocks": "Raw byte-block resources are included for structures with unknown or partially documented members. PlayerSub10BikeExtensionRaw is bike-only and marked uncertain.",
+    "bikeExtension": "The bike extension base is PlayerSub10 + 0x294. Its fields are only meaningful when PlayerParams.IsBike is nonzero.",
+    "GameManagerHeartbeat": "Address retained from the pre-existing configuration, but its semantics are unverified.",
+    "items": {
+      "itemHandler": "ITEMHandler::sInstance pointer is documented at 0x809C20F8. ITEMPacket is 8 bytes; sendPackets[2] occupy 0x00-0x0F, recvPackets[12] occupy 0x10-0x6F, times[12] begin at 0xA0. Bytes in packets are deliberately exposed raw because ITEMPacket field definitions are not included in supplied structures.",
+      "itemBehaviourTable": "itemBehaviourTable[19] begins at 0x809C36A0; each ItemBehaviour is 0x1C bytes. Known member offsets: objectId +0x04, numberOfItems +0x08, useType +0x14, useFunction +0x18.",
+      "itemSlotData": "ItemSlotData::sInstance pointer location is 0x809C3670. Its instance members are documented, but live table pointer/array targets have not yet been validated against the supplied race dump. Instance size is 0x48. playerChances +0x10, cpuChances +0x18, specialChances +0x20, itemsInWheel pointer +0x28, specialBoxItemsInWheel pointer +0x2C, itemSpawnTimers[4] +0x34, playerCount +0x44."
     }
   }
 }

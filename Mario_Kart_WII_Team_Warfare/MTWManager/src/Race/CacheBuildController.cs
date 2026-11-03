@@ -1,4 +1,5 @@
-﻿using MTW.Cache;
+using MTW.Cache;
+using System.Diagnostics;
 using MTW.Memory;
 using GameManager.Dolphin;
 
@@ -9,7 +10,33 @@ namespace MTW.Race
         private readonly DolphinConnection _dolphin;
         private readonly PlayerPointerResolver _resolver;
         private readonly DynamicCacheWriter _cacheWriter;
-        private readonly List<string> _resourceNames = new List<string> { "playerSub10", "raceData" };
+        private readonly List<string> _resourceNames = new()
+        {
+            "playerHolder",
+            "player",
+            "playerPointers",
+            "playerSub",
+            "playerSub10",
+            "playerSub14",
+            "playerSub18",
+            "playerSub1c",
+            "playerParams",
+            "playerGraphics",
+            "playerPhysicsHolder",
+            "playerPhysics",
+            "playerTrick",
+            "playerZipper",
+            "playerSub10BikeExtension",
+            "raceData",
+            "raceDataScenario",
+            "raceDataSettings",
+            "raceInfo",
+            "raceInfoPlayer",
+            "itemSlotData",
+            "itemHandler",
+            "itemPacket",
+            "itemHandlerTime"
+        };
         private bool _cacheBuildHandled;
         private static readonly IntPtr CacheStateAddress = new IntPtr(0x80000CF6);
 
@@ -29,7 +56,7 @@ namespace MTW.Race
                 if (!TryReadState(out byte state))
                 {
                     Console.WriteLine("Failed to read cache state.");
-                    Thread.Sleep(100);
+                    await Task.Delay(100, cancellationToken);
                     continue;
                 }
 
@@ -37,39 +64,61 @@ namespace MTW.Race
                 {
                     _cacheBuildHandled = true;
                     Console.WriteLine("Cache build requested.");
-                    await BuildCache();
+                    await BuildCache(cancellationToken);
                 }
                 else if (state == 0)
                     _cacheBuildHandled = false;
 
-                Thread.Sleep(50);
+                await Task.Delay(50, cancellationToken);
             }
         }
 
-        private async Task BuildCache()
+        private async Task BuildCache(CancellationToken cancellationToken)
         {
-            Console.WriteLine("Resolving player pointers...");
-            Dictionary<int, IntPtr> playerSub10s = _resolver.ResolveAllPlayersSub10();
-            Dictionary<int, IntPtr> raceDataPlayers = _resolver.ResolveAllPlayersRaceData();
-            List<Dictionary<int, IntPtr>> playerPointerLists = new List<Dictionary<int, IntPtr>> { playerSub10s, raceDataPlayers };
-
-            if (playerSub10s.Count != 12)
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            Console.WriteLine("Resolving player pointers in parallel...");
+            var slotResults = new Dictionary<string, IntPtr>[ConfirmedPointerChains.PlayerSlotCount];
+            var options = new ParallelOptions
             {
-                Console.WriteLine($"Cache build failed. Resolved {playerSub10s.Count}/12 players.");
-                return;
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = Math.Min(Environment.ProcessorCount, 4)
+            };
+
+            Parallel.For(0, ConfirmedPointerChains.PlayerSlotCount, options, playerId =>
+            {
+                slotResults[playerId] = _resolver.ResolveAllResourcesForPlayer(playerId);
+            });
+
+            List<Dictionary<int, IntPtr>> playerPointerLists = new(_resourceNames.Count);
+            for (int resourceIndex = 0; resourceIndex < _resourceNames.Count; resourceIndex++)
+            {
+                string resourceName = _resourceNames[resourceIndex];
+                Dictionary<int, IntPtr> resourcePlayers = new();
+                for (int playerId = 0; playerId < slotResults.Length; playerId++)
+                {
+                    if (slotResults[playerId].TryGetValue(resourceName, out IntPtr address))
+                        resourcePlayers[playerId] = address;
+                }
+                playerPointerLists.Add(resourcePlayers);
+
+                if (resourcePlayers.Count != ConfirmedPointerChains.PlayerSlotCount)
+                {
+                    Console.WriteLine(
+                        $"Cache build failed for '{resourceName}': resolved {resourcePlayers.Count}/" +
+                        $"{ConfirmedPointerChains.PlayerSlotCount} slots.");
+                    return;
+                }
             }
 
             try
             {
                 await _cacheWriter.SaveData(playerPointerLists, _resourceNames);
-
                 if (!TryWriteState(2))
                 {
                     Console.WriteLine("Cache was saved, but failed to write state 2.");
                     return;
                 }
-
-                Console.WriteLine("Cache build completed. State = 2.");
+                Console.WriteLine($"Cache build completed in {stopwatch.ElapsedMilliseconds} ms. State = 2.");
             }
             catch (Exception ex)
             {

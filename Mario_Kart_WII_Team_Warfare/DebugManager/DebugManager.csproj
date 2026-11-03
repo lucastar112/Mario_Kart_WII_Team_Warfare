@@ -1,7 +1,7 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-	<OutputType>WinExe</OutputType>
+	<OutputType>Exe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -13,6 +13,7 @@
     <Folder Include="Assets\MenuPreviews\" />
     <Folder Include="Assets\Characters\" />
     <Folder Include="Assets\Vehicles\" />
+    <Folder Include="Assets\Tracks\" />
     <Folder Include="Menus\" />
   </ItemGroup>
 
@@ -20,6 +21,7 @@
 	<Resource Include="Assets\MenuPreviews\*.png" />
 	<Resource Include="Assets\Characters\*.png" />
 	<Resource Include="Assets\Vehicles\*.png" />
+    <Resource Include="Assets\Tracks\*.png" />
   </ItemGroup>
 
   <ItemGroup>
@@ -38,6 +40,10 @@
 	<None Update="Assets\Vehicles\**\*.png">
 	 <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 	</None>
+
+    <None Update="Assets\Tracks\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
