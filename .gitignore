@@ -428,4 +428,4 @@ FodyWeavers.xsd
 #*.lscache
 
 # Riders IDE
-.idea/
+/.idea
