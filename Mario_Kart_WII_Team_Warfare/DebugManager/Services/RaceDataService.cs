@@ -56,18 +56,6 @@ public sealed class RaceDataService
             Task<RacePlayer?>[] slotTasks = Enumerable.Range(0, maxPlayers)
                 .Select(async playerSlot =>
                 {
-<<<<<<< Updated upstream
-                    characterValue = await _gameManager.GetPlayersIdAsync(playerSlot, cancellationToken);
-                    vehicleValue = await _gameManager.GetVehiclesIdAsync(playerSlot, cancellationToken);
-                    teamValue = await _gameManager.GetTeamIdAsync(playerSlot, cancellationToken);
-                }
-                catch (Exception exception)
-                    when (exception is not OperationCanceledException)
-                {
-                    Console.WriteLine($"[RaceData] Player slot {playerSlot} is unavailable: " + exception.Message);
-                    continue;
-                }
-=======
                     await slotGate.WaitAsync(cancellationToken);
                     try
                     {
@@ -85,7 +73,6 @@ public sealed class RaceDataService
                         if (!ModCharacterDatabase.All.TryGetValue((byte)characterId, out CharacterDefinition? character) ||
                             !VehicleDatabase.All.TryGetValue((byte)vehicleId, out VehicleDefinition? vehicle))
                             return null;
->>>>>>> Stashed changes
 
                         return new RacePlayer
                         {
