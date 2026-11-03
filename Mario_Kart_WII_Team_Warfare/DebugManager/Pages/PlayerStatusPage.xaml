@@ -10,28 +10,28 @@
             <TextBlock x:Name="StatusText" Foreground="#B0BEC5" Margin="0,0,18,0" HorizontalAlignment="Right" VerticalAlignment="Center"/>
         </Grid>
         <DataGrid x:Name="PlayersGrid" Grid.Row="1" Margin="18" AutoGenerateColumns="False" IsReadOnly="True"
-                  CanUserAddRows="False" HeadersVisibility="Column" Background="#252525" Foreground="White"
+                  CanUserAddRows="False" HeadersVisibility="Column" Background="#252525" Foreground="Black"
                   RowBackground="#303030" AlternatingRowBackground="#383838" BorderBrush="#505050"
                   ItemsSource="{Binding Players}">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Slot" Binding="{Binding PlayerId}" Width="55"/>
-                <DataGridTextColumn Header="Type" Binding="{Binding PlayerTypeText}" Width="85"/>
-                <DataGridTextColumn Header="Character" Binding="{Binding Character}" Width="150"/>
-                <DataGridTextColumn Header="Place" Binding="{Binding PositionText}" Width="65"/>
-                <DataGridTextColumn Header="Lap" Binding="{Binding LapText}" Width="65"/>
-                <DataGridTextColumn Header="Race completion" Binding="{Binding CompletionText}" Width="115"/>
-                <DataGridTextColumn Header="Speed" Binding="{Binding SpeedText}" Width="85"/>
-                <DataGridTextColumn Header="Drift" Binding="{Binding DriftText}" Width="105"/>
-                <DataGridTextColumn Header="MT charge" Binding="{Binding MtCharge}" Width="85"/>
-                <DataGridTextColumn Header="SMT charge" Binding="{Binding SmtCharge}" Width="90"/>
-                <DataGridTextColumn Header="Effect" Binding="{Binding EffectText}" Width="180"/>
-                <DataGridTextColumn Header="Star" Binding="{Binding StarTimer}" Width="60"/>
-                <DataGridTextColumn Header="Mega" Binding="{Binding MegaTimer}" Width="60"/>
-                <DataGridTextColumn Header="Shock" Binding="{Binding ShockTimer}" Width="65"/>
-                <DataGridTextColumn Header="Crush" Binding="{Binding CrushTimer}" Width="65"/>
-                <DataGridTextColumn Header="Respawn" Binding="{Binding RespawnState}" Width="75"/>
-                <DataGridTextColumn Header="Pre-respawn" Binding="{Binding PreRespawnTimer}" Width="95"/>
-                <DataGridTextColumn Header="Out-of-bounds" Binding="{Binding SolidOutOfBoundsTimer}" Width="110"/>
+                <DataGridTextColumn Header="Slot" Foreground="White" Binding="{Binding PlayerId}" Width="55"/>
+                <DataGridTextColumn Header="Type" Foreground="White" Binding="{Binding PlayerTypeText}" Width="85"/>
+                <DataGridTextColumn Header="Character" Foreground="White" Binding="{Binding Character}" Width="150"/>
+                <DataGridTextColumn Header="Place" Foreground="White" Binding="{Binding PositionText}" Width="65"/>
+                <DataGridTextColumn Header="Lap" Foreground="White" Binding="{Binding LapText}" Width="65"/>
+                <DataGridTextColumn Header="Race completion" Foreground="White" Binding="{Binding CompletionText}" Width="115"/>
+                <DataGridTextColumn Header="Speed" Foreground="White" Binding="{Binding SpeedText}" Width="85"/>
+                <DataGridTextColumn Header="Drift" Foreground="White" Binding="{Binding DriftText}" Width="105"/>
+                <DataGridTextColumn Header="MT charge" Foreground="White" Binding="{Binding MtCharge}" Width="85"/>
+                <DataGridTextColumn Header="SMT charge" Foreground="White" Binding="{Binding SmtCharge}" Width="90"/>
+                <DataGridTextColumn Header="Effect" Foreground="White" Binding="{Binding EffectText}" Width="180"/>
+                <DataGridTextColumn Header="Star" Foreground="White" Binding="{Binding StarTimer}" Width="60"/>
+                <DataGridTextColumn Header="Mega" Foreground="White" Binding="{Binding MegaTimer}" Width="60"/>
+                <DataGridTextColumn Header="Shock" Foreground="White" Binding="{Binding ShockTimer}" Width="65"/>
+                <DataGridTextColumn Header="Crush" Foreground="White" Binding="{Binding CrushTimer}" Width="65"/>
+                <DataGridTextColumn Header="Respawn" Foreground="White" Binding="{Binding RespawnState}" Width="75"/>
+                <DataGridTextColumn Header="Pre-respawn" Foreground="White" Binding="{Binding PreRespawnTimer}" Width="95"/>
+                <DataGridTextColumn Header="Out-of-bounds" Foreground="White" Binding="{Binding SolidOutOfBoundsTimer}" Width="110"/>
             </DataGrid.Columns>
         </DataGrid>
     </Grid>
