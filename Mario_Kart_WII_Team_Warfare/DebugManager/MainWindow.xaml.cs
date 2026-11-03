@@ -1,4 +1,4 @@
-﻿using DebugManager.Pages;
+using DebugManager.Pages;
 using System.Windows;
 
 namespace DebugManager;
@@ -19,5 +19,20 @@ public partial class MainWindow : Window
     public void ShowRaceData()
     {
         MainFrame.Navigate(new RaceDataPage(this));
+    }
+
+    public void ShowTrackMap()
+    {
+        MainFrame.Navigate(new TrackMapPage(this));
+    }
+
+    public void ShowPlayerStatus()
+    {
+        MainFrame.Navigate(new PlayerStatusPage(this));
+    }
+
+    public void ShowItems()
+    {
+        MainFrame.Navigate(new ItemsPage(this));
     }
 }

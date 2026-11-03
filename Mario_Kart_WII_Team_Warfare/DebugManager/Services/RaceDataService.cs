@@ -1,4 +1,4 @@
-﻿using DebugManager.Data;
+using DebugManager.Data;
 using DebugManager.Models;
 using System.Windows.Media.Imaging;
 using System.Text.Json;
@@ -27,23 +27,15 @@ public sealed class RaceDataService
 
             Console.WriteLine("[RaceData] Checking race data state...");
 
-            JsonElement gameStateValue =
-                await _gameManager.GetAsync<JsonElement>(
-                    "GameState",
-                    cancellationToken: cancellationToken);
+            JsonElement gameStateValue = await _gameManager.GetAsync<JsonElement>("GameState", cancellationToken: cancellationToken);
 
             byte state;
 
-            if (gameStateValue.ValueKind == JsonValueKind.Number &&
-                gameStateValue.TryGetByte(out byte numericState))
-            {
+            if (gameStateValue.ValueKind == JsonValueKind.Number && gameStateValue.TryGetByte(out byte numericState))
                 state = numericState;
-            }
             else
             {
-                Console.WriteLine(
-                    $"[RaceData] Invalid GameState value: {gameStateValue}");
-
+                Console.WriteLine($"[RaceData] Invalid GameState value: {gameStateValue}");
                 return [];
             }
 
@@ -51,9 +43,7 @@ public sealed class RaceDataService
 
             if (state != 2)
             {
-                Console.WriteLine(
-                    "[RaceData] Race data is not ready. Waiting for cache...");
-
+                Console.WriteLine("[RaceData] Race data is not ready. Waiting for cache...");
                 return [];
             }
 
@@ -62,23 +52,13 @@ public sealed class RaceDataService
             // ---------------------------------------------------------
 
             const int maxPlayers = 12;
-
-            List<RacePlayer> players = [];
-
-            for (int playerSlot = 0; playerSlot < maxPlayers; playerSlot++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                JsonElement characterValue;
-                JsonElement vehicleValue;
-                JsonElement teamValue;
-
-                try
+            using SemaphoreSlim slotGate = new(4);
+            Task<RacePlayer?>[] slotTasks = Enumerable.Range(0, maxPlayers)
+                .Select(async playerSlot =>
                 {
+<<<<<<< Updated upstream
                     characterValue = await _gameManager.GetPlayersIdAsync(playerSlot, cancellationToken);
-
                     vehicleValue = await _gameManager.GetVehiclesIdAsync(playerSlot, cancellationToken);
-
                     teamValue = await _gameManager.GetTeamIdAsync(playerSlot, cancellationToken);
                 }
                 catch (Exception exception)
@@ -87,47 +67,46 @@ public sealed class RaceDataService
                     Console.WriteLine($"[RaceData] Player slot {playerSlot} is unavailable: " + exception.Message);
                     continue;
                 }
+=======
+                    await slotGate.WaitAsync(cancellationToken);
+                    try
+                    {
+                        JsonElement[] values = await Task.WhenAll(
+                            _gameManager.GetPlayersIdAsync(playerSlot, cancellationToken),
+                            _gameManager.GetVehiclesIdAsync(playerSlot, cancellationToken),
+                            _gameManager.GetTeamIdAsync(playerSlot, cancellationToken));
 
-                if (!TryGetUInt32(characterValue, out uint characterId) ||
-                    !TryGetUInt32(vehicleValue, out uint vehicleId) ||
-                    !TryGetUInt32(teamValue, out uint teamId))
-                {
-                    Console.WriteLine($"[RaceData] Invalid or unavailable data for slot {playerSlot}.");
-                    continue;
-                }
+                        if (!TryGetUInt32(values[0], out uint characterId) ||
+                            !TryGetUInt32(values[1], out uint vehicleId) ||
+                            !TryGetUInt32(values[2], out uint teamId) ||
+                            characterId > byte.MaxValue || vehicleId > byte.MaxValue)
+                            return null;
 
-                if (characterId > byte.MaxValue || vehicleId > byte.MaxValue)
-                {
-                    Console.WriteLine($"[RaceData] ID out of range for slot {playerSlot}.");
-                    continue;
-                }
+                        if (!ModCharacterDatabase.All.TryGetValue((byte)characterId, out CharacterDefinition? character) ||
+                            !VehicleDatabase.All.TryGetValue((byte)vehicleId, out VehicleDefinition? vehicle))
+                            return null;
+>>>>>>> Stashed changes
 
-                if (!ModCharacterDatabase.All.TryGetValue((byte)characterId, out CharacterDefinition? character))
-                {
-                    Console.WriteLine($"[RaceData] Unknown character ID {characterId} for slot {playerSlot}.");
-                    continue;
-                }
+                        return new RacePlayer
+                        {
+                            PlayerId = playerSlot, CharacterId = character.Id, VehicleId = vehicle.Id,
+                            Character = character.Name, Vehicle = vehicle.Name, TeamId = teamId,
+                            CharacterImage = LoadImage(Path.Combine("Assets", "Characters", character.ImageFile)),
+                            VehicleImage = LoadImage(Path.Combine("Assets", "Vehicles", vehicle.ImageFile))
+                        };
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception exception)
+                    {
+                        Console.WriteLine($"[RaceData] Player slot {playerSlot} unavailable: {exception.Message}");
+                        return null;
+                    }
+                    finally { slotGate.Release(); }
+                })
+                .ToArray();
 
-                if (!VehicleDatabase.All.TryGetValue((byte)vehicleId, out VehicleDefinition? vehicle))
-                {
-                    Console.WriteLine($"[RaceData] Unknown vehicle ID {vehicleId} for slot {playerSlot}.");
-                    continue;
-                }
-
-                players.Add(new RacePlayer
-                {
-                    PlayerId = playerSlot,
-                    CharacterId = character.Id,
-                    VehicleId = vehicle.Id,
-                    Character = character.Name,
-                    Vehicle = vehicle.Name,
-                    TeamId = teamId,
-                    CharacterImage = LoadImage(
-                        Path.Combine("Assets", "Characters", character.ImageFile)),
-                    VehicleImage = LoadImage(
-                        Path.Combine("Assets", "Vehicles", vehicle.ImageFile))
-                });
-            }
+            RacePlayer?[] slotResults = await Task.WhenAll(slotTasks);
+            List<RacePlayer> players = slotResults.Where(player => player is not null).Cast<RacePlayer>().ToList();
 
             Console.WriteLine($"[RaceData] Created {players.Count} players.");
             return players;
@@ -143,7 +122,6 @@ public sealed class RaceDataService
     {
         if (value.ValueKind == JsonValueKind.Number && value.TryGetUInt32(out result))
             return true;
-        
 
         result = 0;
         return false;

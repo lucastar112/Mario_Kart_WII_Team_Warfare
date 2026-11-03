@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 
@@ -19,4 +19,8 @@ public partial class MainMenuPage : Page
     {
         _mainWindow.ShowRaceData();
     }
+
+    private void TrackMap_Click(object sender, MouseButtonEventArgs e) => _mainWindow.ShowTrackMap();
+    private void PlayerStatus_Click(object sender, MouseButtonEventArgs e) => _mainWindow.ShowPlayerStatus();
+    private void Items_Click(object sender, MouseButtonEventArgs e) => _mainWindow.ShowItems();
 }
