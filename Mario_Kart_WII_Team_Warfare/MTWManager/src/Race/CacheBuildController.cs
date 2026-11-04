@@ -1,4 +1,4 @@
-using MTW.Cache;
+﻿using MTW.Cache;
 using System.Diagnostics;
 using MTW.Memory;
 using GameManager.Dolphin;
@@ -51,6 +51,16 @@ namespace MTW.Race
         {
             Console.WriteLine("MTW cache controller started.");
 
+            // This child owns its own DolphinConnection, so it must discover the
+            // emulated RAM mapping itself (GameManager's connection is separate).
+            while (!_dolphin.IsMemoryMapInitialized && !cancellationToken.IsCancellationRequested)
+            {
+                if (_dolphin.InitializeMemoryMap())
+                    break;
+
+                await Task.Delay(500, cancellationToken);
+            }
+
             while (!cancellationToken.IsCancellationRequested)
             {
                 if (!TryReadState(out byte state))
@@ -75,9 +85,13 @@ namespace MTW.Race
 
         private async Task BuildCache(CancellationToken cancellationToken)
         {
-            Stopwatch stopwatch = Stopwatch.StartNew();
-            Console.WriteLine("Resolving player pointers in parallel...");
+            Stopwatch total = Stopwatch.StartNew();
+            _dolphin.ResetReadStatistics();
+            Console.WriteLine("[CacheProfile] Build started.");
+
+            Stopwatch resolveTimer = Stopwatch.StartNew();
             var slotResults = new Dictionary<string, IntPtr>[ConfirmedPointerChains.PlayerSlotCount];
+            var slotTimes = new long[ConfirmedPointerChains.PlayerSlotCount];
             var options = new ParallelOptions
             {
                 CancellationToken = cancellationToken,
@@ -86,9 +100,16 @@ namespace MTW.Race
 
             Parallel.For(0, ConfirmedPointerChains.PlayerSlotCount, options, playerId =>
             {
+                Stopwatch slotTimer = Stopwatch.StartNew();
                 slotResults[playerId] = _resolver.ResolveAllResourcesForPlayer(playerId);
+                slotTimes[playerId] = slotTimer.ElapsedMilliseconds;
             });
+            resolveTimer.Stop();
+            Console.WriteLine($"[CacheProfile] Player pointer resolution: {resolveTimer.ElapsedMilliseconds} ms (parallel, max workers={options.MaxDegreeOfParallelism}).");
+            for (int i = 0; i < slotTimes.Length; i++)
+                Console.WriteLine($"[CacheProfile]   Slot {i:D2}: {slotTimes[i]} ms, {slotResults[i].Count}/{_resourceNames.Count} resources.");
 
+            Stopwatch aggregateTimer = Stopwatch.StartNew();
             List<Dictionary<int, IntPtr>> playerPointerLists = new(_resourceNames.Count);
             for (int resourceIndex = 0; resourceIndex < _resourceNames.Count; resourceIndex++)
             {
@@ -103,22 +124,31 @@ namespace MTW.Race
 
                 if (resourcePlayers.Count != ConfirmedPointerChains.PlayerSlotCount)
                 {
-                    Console.WriteLine(
-                        $"Cache build failed for '{resourceName}': resolved {resourcePlayers.Count}/" +
-                        $"{ConfirmedPointerChains.PlayerSlotCount} slots.");
+                    Console.WriteLine($"Cache build failed for '{resourceName}': resolved {resourcePlayers.Count}/{ConfirmedPointerChains.PlayerSlotCount} slots.");
                     return;
                 }
             }
+            aggregateTimer.Stop();
+            Console.WriteLine($"[CacheProfile] Resource aggregation/validation: {aggregateTimer.ElapsedMilliseconds} ms.");
 
             try
             {
+                Stopwatch saveTimer = Stopwatch.StartNew();
                 await _cacheWriter.SaveData(playerPointerLists, _resourceNames);
+                saveTimer.Stop();
+                Console.WriteLine($"[CacheProfile] Cache serialization, disk write and GameManager reload: {saveTimer.ElapsedMilliseconds} ms.");
+
+                Stopwatch stateTimer = Stopwatch.StartNew();
                 if (!TryWriteState(2))
                 {
                     Console.WriteLine("Cache was saved, but failed to write state 2.");
                     return;
                 }
-                Console.WriteLine($"Cache build completed in {stopwatch.ElapsedMilliseconds} ms. State = 2.");
+                stateTimer.Stop();
+                var reads = _dolphin.GetReadStatistics();
+                Console.WriteLine($"[CacheProfile] State update: {stateTimer.ElapsedMilliseconds} ms.");
+                Console.WriteLine($"[CacheProfile] Dolphin reads: {reads.Calls} calls, {reads.PointerReads} pointer reads, {reads.Bytes} bytes, {reads.Failures} failures, {_dolphin.TotalReadTime.TotalMilliseconds:F1} ms inside TryRead (summed across threads).");
+                Console.WriteLine($"[CacheProfile] TOTAL: {total.ElapsedMilliseconds} ms. State = 2.");
             }
             catch (Exception ex)
             {
