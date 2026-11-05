@@ -17,7 +17,7 @@ public static class ModCharacterDatabase
             [0x05] = new(0x05, "ka", "Dry Bones", "DryBones.png"),
             [0x06] = new(0x06, "bmr", "Cyberworm", "Cyber.png"),
             [0x07] = new(0x07, "lg", "Luigi", "MrL.png"),
-            [0x08] = new(0x08, "ko", "Toad", "Plankton.png"),
+            [0x08] = new(0x08, "ko", "Sheldon J. Plankton", "Plankton.png"),
             [0x09] = new(0x09, "dk", "Homer J. Simpson", "Homer.png"),
             [0x0A] = new(0x0A, "ys", "Yoshi", "Yoshi.png"),
             [0x0B] = new(0x0B, "wr", "Patrick Desmund Star", "Patrick.png"),
