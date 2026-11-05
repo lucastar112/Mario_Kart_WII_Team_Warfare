@@ -1,5 +1,6 @@
-using DebugManager.Data;
+﻿using DebugManager.Data;
 using DebugManager.Models;
+using GameManager.Shared.Ipc;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
@@ -12,7 +13,6 @@ namespace DebugManager.Services;
 public sealed class LiveRaceDataService
 {
     private const int PlayerSlotCount = 12;
-    private const int MaxConcurrentPlayerReads = 4;
     private static readonly ConcurrentDictionary<string, BitmapImage> ImageCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly GameManagerConnection _connection;
 
@@ -24,69 +24,72 @@ public sealed class LiveRaceDataService
         JsonElement state = await _connection.GetAsync<JsonElement>("GameState", cancellationToken: token);
         if (ReadNumber(state) != 2) return [];
 
-        // Each slot is fetched independently. Four slots may be in flight at once;
-        // each slot's resource reads are concurrent over the multiplexed named pipe.
-        using SemaphoreSlim slots = new(MaxConcurrentPlayerReads);
-        Task<LivePlayerSnapshot?>[] reads = Enumerable.Range(0, PlayerSlotCount)
-            .Select(async slot =>
-            {
-                await slots.WaitAsync(token);
-                try { return await ReadPlayerAsync(slot, token); }
-                finally { slots.Release(); }
-            })
-            .ToArray();
+        // One IPC round trip for every resource of every slot (12 x 18 reads).
+        List<IpcResourceRequest> requests = new(PlayerSlotCount * Resources.Length);
+        for (int slot = 0; slot < PlayerSlotCount; slot++)
+            foreach (string resource in Resources)
+                requests.Add(new IpcResourceRequest { Resource = resource, PlayerId = slot });
 
-        LivePlayerSnapshot?[] results = await Task.WhenAll(reads);
-        List<LivePlayerSnapshot> players = results.Where(player => player is not null).Cast<LivePlayerSnapshot>().ToList();
+        IReadOnlyList<IpcResourceResult> results = await _connection.GetManyAsync(requests, token);
+
+        List<LivePlayerSnapshot> players = [];
+        for (int slot = 0; slot < PlayerSlotCount; slot++)
+        {
+            LivePlayerSnapshot? player = BuildPlayer(slot, results, slot * Resources.Length);
+            if (player is not null) players.Add(player);
+        }
+
         Console.WriteLine($"[LiveRaceData] Read {players.Count}/{PlayerSlotCount} slots in {stopwatch.ElapsedMilliseconds} ms.");
         return players;
     }
 
-    private async Task<LivePlayerSnapshot?> ReadPlayerAsync(int slot, CancellationToken token)
+    // Order matters: BuildPlayer indexes into this list.
+    private static readonly string[] Resources =
+    [
+        "CharacterId", "RacePosition", "RaceCompletion", "CurrentLapCandidate",
+        "MaxLap", "VehicleSpeed", "DriftState", "MtCharge",
+        "SmtCharge", "StarTimer", "MegaTimer", "ShockTimer",
+        "CrushTimer", "RespawnState", "BoostTypes", "PlayerType",
+        "PreRespawnTimer", "SolidOutOfBoundsTimer", "PhysicsPositionX", "PhysicsPositionY", "PhysicsPositionZ"
+    ];
+
+    private LivePlayerSnapshot? BuildPlayer(int slot, IReadOnlyList<IpcResourceResult> results, int offset)
     {
-        try
+        if (results.Count < offset + Resources.Length) return null;
+
+        JsonElement[] values = new JsonElement[Resources.Length];
+        for (int i = 0; i < Resources.Length; i++)
         {
-            JsonElement[] values = await Task.WhenAll(
-                Read("CharacterId", slot, token), Read("RacePosition", slot, token),
-                Read("RaceCompletion", slot, token), Read("CurrentLapCandidate", slot, token),
-                Read("MaxLap", slot, token), Read("VehicleSpeed", slot, token),
-                Read("DriftState", slot, token), Read("MtCharge", slot, token),
-                Read("SmtCharge", slot, token), Read("StarTimer", slot, token),
-                Read("MegaTimer", slot, token), Read("ShockTimer", slot, token),
-                Read("CrushTimer", slot, token), Read("RespawnState", slot, token),
-                Read("BoostTypes", slot, token), Read("PlayerType", slot, token),
-                Read("PreRespawnTimer", slot, token), Read("SolidOutOfBoundsTimer", slot, token));
-
-            uint charId = (uint)Math.Max(0, ReadNumber(values[0]));
-            if (!ModCharacterDatabase.All.TryGetValue((byte)charId, out CharacterDefinition? character))
-                CharacterDatabase.All.TryGetValue((byte)charId, out character);
-
-            return new LivePlayerSnapshot
+            IpcResourceResult result = results[offset + i];
+            if (!result.Success || result.Value is not JsonElement element)
             {
-                PlayerId = slot, CharacterId = charId,
-                Character = character?.Name ?? $"Character {charId:X2}",
-                CharacterImage = character is null ? null : LoadImage(character.ImageFile),
-                Position = (int)ReadNumber(values[1]), Completion = ReadFloat(values[2]),
-                CurrentLap = (int)ReadNumber(values[3]), MaxLap = (int)ReadNumber(values[4]),
-                Speed = ReadFloat(values[5]), DriftState = (int)ReadNumber(values[6]),
-                MtCharge = (int)ReadNumber(values[7]), SmtCharge = (int)ReadNumber(values[8]),
-                StarTimer = (int)ReadNumber(values[9]), MegaTimer = (int)ReadNumber(values[10]),
-                ShockTimer = (int)ReadNumber(values[11]), CrushTimer = (int)ReadNumber(values[12]),
-                RespawnState = (int)ReadNumber(values[13]), BoostTypes = (ushort)ReadNumber(values[14]),
-                PlayerType = (int)ReadNumber(values[15]), PreRespawnTimer = (int)ReadNumber(values[16]),
-                SolidOutOfBoundsTimer = (int)ReadNumber(values[17])
-            };
+                Console.WriteLine($"[LiveRaceData] Slot {slot} unavailable: {result.Error ?? Resources[i]}");
+                return null;
+            }
+            values[i] = element;
         }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[LiveRaceData] Slot {slot} unavailable: {ex.Message}");
-            return null;
-        }
-    }
 
-    private Task<JsonElement> Read(string name, int player, CancellationToken token) =>
-        _connection.GetAsync<JsonElement>(name, player, token);
+        uint charId = (uint)Math.Max(0, ReadNumber(values[0]));
+        if (!ModCharacterDatabase.All.TryGetValue((byte)charId, out CharacterDefinition? character))
+            CharacterDatabase.All.TryGetValue((byte)charId, out character);
+
+        return new LivePlayerSnapshot
+        {
+            PlayerId = slot, CharacterId = charId,
+            Character = character?.Name ?? $"Character {charId:X2}",
+            CharacterImage = character is null ? null : LoadImage(character.ImageFile),
+            Position = (int)ReadNumber(values[1]), Completion = ReadFloat(values[2]),
+            CurrentLap = (int)ReadNumber(values[3]), MaxLap = (int)ReadNumber(values[4]),
+            Speed = ReadFloat(values[5]), DriftState = (int)ReadNumber(values[6]),
+            MtCharge = (int)ReadNumber(values[7]), SmtCharge = (int)ReadNumber(values[8]),
+            StarTimer = (int)ReadNumber(values[9]), MegaTimer = (int)ReadNumber(values[10]),
+            ShockTimer = (int)ReadNumber(values[11]), CrushTimer = (int)ReadNumber(values[12]),
+            RespawnState = (int)ReadNumber(values[13]), BoostTypes = (ushort)ReadNumber(values[14]),
+            PlayerType = (int)ReadNumber(values[15]), PreRespawnTimer = (int)ReadNumber(values[16]),
+            SolidOutOfBoundsTimer = (int)ReadNumber(values[17]),
+            WorldX = ReadFloat(values[18]), WorldY = ReadFloat(values[19]), WorldZ = ReadFloat(values[20])
+        };
+    }
 
     private static long ReadNumber(JsonElement value)
     {
