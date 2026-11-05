@@ -10,6 +10,9 @@ public sealed class LivePlayerSnapshot
     public ImageSource? CharacterImage { get; init; }
     public int Position { get; init; }
     public float Completion { get; init; }
+    public float WorldX { get; init; }
+    public float WorldY { get; init; }
+    public float WorldZ { get; init; }
     public int CurrentLap { get; init; }
     public int MaxLap { get; init; }
     public float Speed { get; init; }
