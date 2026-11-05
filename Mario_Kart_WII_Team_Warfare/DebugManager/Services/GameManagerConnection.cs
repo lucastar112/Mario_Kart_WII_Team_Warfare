@@ -1,4 +1,5 @@
 ﻿using GameManager.Shared.Client;
+using GameManager.Shared.Ipc;
 using System.Text.Json;
 
 namespace DebugManager.Services;
@@ -30,6 +31,14 @@ public sealed class GameManagerConnection : IAsyncDisposable
     public Task<T?> GetAsync<T>(string resource, int? playerId = null, CancellationToken cancellationToken = default)
     {
         return _client.GetAsync<T>(resource, playerId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Reads many resources with one IPC round trip (same order as the request).
+    /// </summary>
+    public Task<IReadOnlyList<IpcResourceResult>> GetManyAsync(IReadOnlyList<IpcResourceRequest> requests, CancellationToken cancellationToken = default)
+    {
+        return _client.GetManyAsync(requests, cancellationToken);
     }
 
     /// <summary>
