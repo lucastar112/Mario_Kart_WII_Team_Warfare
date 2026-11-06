@@ -49,9 +49,13 @@
             </ScrollViewer>
             <Border x:Name="Map3DPanel" Background="#151B20" CornerRadius="10" Visibility="Collapsed" ClipToBounds="True">
                 <Grid>
-                    <Viewport3D x:Name="TrackViewport3D" ClipToBounds="True"/>
+                    <Viewport3D x:Name="TrackViewport3D" ClipToBounds="True"
+                                PreviewMouseDown="TrackViewport3D_MouseDown"
+                                PreviewMouseMove="TrackViewport3D_MouseMove"
+                                PreviewMouseUp="TrackViewport3D_MouseUp"
+                                PreviewMouseWheel="TrackViewport3D_MouseWheel"/>
                     <Border VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="12" Padding="8,5" Background="#D0202830" CornerRadius="4">
-                        <TextBlock Text="COORDINATE DIAGNOSTIC · KMP GEOMETRY ONLY · BRRES MODEL NOT YET LOADED" Foreground="#FFE082" FontSize="11" FontWeight="Bold"/>
+                        <TextBlock Text="COURSE_MODEL.BRRES · GREY GEOMETRY · DRAG TO ORBIT · WHEEL TO ZOOM" Foreground="#FFE082" FontSize="11" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>

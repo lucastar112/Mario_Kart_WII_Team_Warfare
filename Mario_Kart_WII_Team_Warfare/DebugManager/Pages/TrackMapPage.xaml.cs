@@ -22,6 +22,11 @@ public partial class TrackMapPage : Page
     private int _baseChildCount;
     private int _staticChildCount;
     private KmpCheckpointGraph? _checkpointGraph;
+    private double _cameraYaw = -35;
+    private double _cameraPitch = 28;
+    private double _cameraDistance = 180;
+    private Point _lastCameraMouse;
+    private bool _cameraDragging;
     private const double MapWidth = 1100;
     private const double MapHeight = 700;
 
@@ -119,18 +124,19 @@ public partial class TrackMapPage : Page
             int cpuRouteCount = archive.Kmp.FindSection("ENPT")?.EntryCount ?? 0;
             int itemRouteCount = archive.Kmp.FindSection("ITPT")?.EntryCount ?? 0;
             string modelSummary = "BRRES: course_model.brres not found";
+            BrresModelReader.DecodeResult? courseModel = null;
             if (archive.ArchiveFiles.Contains("course_model.brres", StringComparer.OrdinalIgnoreCase))
             {
                 try
                 {
                     SzsArchiveReader modelArchive = SzsArchiveReader.Open(File.ReadAllBytes(szsPath));
-                    BrresModelReader.ModelSummary model = BrresModelReader.Inspect(modelArchive.ReadFile("course_model.brres"));
-                    modelSummary = model.ToString();
+                    courseModel = BrresModelReader.Decode(modelArchive.ReadFile("course_model.brres"));
+                    modelSummary = courseModel.Summary;
                 }
                 catch (Exception modelException)
                 {
-                    modelSummary = "BRRES inspection failed: " + modelException.Message;
-                    Console.WriteLine("[TrackMap] BRRES inspection failed: " + modelException);
+                    modelSummary = "BRRES mesh decode failed: " + modelException.Message;
+                    Console.WriteLine("[TrackMap] BRRES mesh decode failed: " + modelException);
                 }
             }
             return new TrackDefinition
@@ -140,6 +146,7 @@ public partial class TrackMapPage : Page
                 ArchivePath = archive.SourcePath,
                 Kmp = archive.Kmp,
                 Lex = archive.Lex,
+                CourseModel = courseModel,
                 Summary = $"KMP: {archive.Kmp.Sections.Count} sections · {checkpointCount} checkpoints · {objectCount} objects · {cpuRouteCount} CPU points · {itemRouteCount} item points · LEX: {archive.Lex?.Sections.Count ?? 0} sections · {modelSummary}",
                 Waypoints = []
             };
@@ -202,62 +209,86 @@ public partial class TrackMapPage : Page
     private void Build3DPrototype()
     {
         TrackViewport3D.Children.Clear();
-        if (_checkpointGraph is null || _checkpointGraph.Checkpoints.Count < 2)
-            return;
-
-        List<KmpCheckpoint> checkpoints = _checkpointGraph.Checkpoints.ToList();
-        double minX = checkpoints.Min(c => Math.Min(c.LeftX, c.RightX));
-        double maxX = checkpoints.Max(c => Math.Max(c.LeftX, c.RightX));
-        double minZ = checkpoints.Min(c => Math.Min(c.LeftZ, c.RightZ));
-        double maxZ = checkpoints.Max(c => Math.Max(c.LeftZ, c.RightZ));
-        double centerX = (minX + maxX) * 0.5;
-        double centerZ = (minZ + maxZ) * 0.5;
-        double span = Math.Max(maxX - minX, maxZ - minZ);
-        if (span < 1) span = 1;
-
-        // Temporary road ribbon reconstructed from CKPT gates. KMP does not
-        // contain the rendered BRRES mesh; this is intentionally a geometry test.
-        MeshGeometry3D road = new();
-        var edges = _checkpointGraph.BuildRouteEdges();
-        foreach ((int from, int to) in edges)
+        if (_track?.CourseModel is not { } model)
         {
-            KmpCheckpoint a = checkpoints[from];
-            KmpCheckpoint b = checkpoints[to];
-            Point3D aLeft = To3D(a.LeftX, a.LeftZ, centerX, centerZ);
-            Point3D aRight = To3D(a.RightX, a.RightZ, centerX, centerZ);
-            Point3D bLeft = To3D(b.LeftX, b.LeftZ, centerX, centerZ);
-            Point3D bRight = To3D(b.RightX, b.RightZ, centerX, centerZ);
-            int start = road.Positions.Count;
-            road.Positions.Add(aLeft); road.Positions.Add(aRight);
-            road.Positions.Add(bRight); road.Positions.Add(bLeft);
-            road.TriangleIndices.Add(start); road.TriangleIndices.Add(start + 1); road.TriangleIndices.Add(start + 2);
-            road.TriangleIndices.Add(start); road.TriangleIndices.Add(start + 2); road.TriangleIndices.Add(start + 3);
+            StatusText.Text = "3D model unavailable · " + (_track?.Summary ?? "No track loaded");
+            return;
         }
 
-        Material roadMaterial = new DiffuseMaterial(new SolidColorBrush(Color.FromRgb(92, 105, 112)));
-        GeometryModel3D roadModel = new(road, roadMaterial)
-        {
-            BackMaterial = roadMaterial
-        };
+        MeshGeometry3D source = model.Geometry;
+        double cx = (model.Minimum.X + model.Maximum.X) * 0.5;
+        double cy = (model.Minimum.Y + model.Maximum.Y) * 0.5;
+        double cz = (model.Minimum.Z + model.Maximum.Z) * 0.5;
+        double span = Math.Max(model.Maximum.X - model.Minimum.X,
+            Math.Max(model.Maximum.Y - model.Minimum.Y, model.Maximum.Z - model.Minimum.Z));
+        if (span <= 0) span = 1;
+
+        // Convert the game's world-unit scale to convenient WPF units and center the model.
+        Transform3DGroup transform = new();
+        transform.Children.Add(new TranslateTransform3D(-cx, -cy, -cz));
+        transform.Children.Add(new ScaleTransform3D(0.001, 0.001, 0.001));
+        Material material = new DiffuseMaterial(new SolidColorBrush(Color.FromRgb(155, 163, 168)));
+        GeometryModel3D geometry = new(source, material) { BackMaterial = material, Transform = transform };
         Model3DGroup scene = new();
-        scene.Children.Add(roadModel);
-        scene.Children.Add(new AmbientLight(Color.FromRgb(115, 115, 115)));
-        scene.Children.Add(new DirectionalLight(Colors.White, new Vector3D(-0.4, -1, -0.5)));
+        scene.Children.Add(geometry);
+        scene.Children.Add(new AmbientLight(Color.FromRgb(105, 105, 105)));
+        scene.Children.Add(new DirectionalLight(Colors.White, new Vector3D(-0.4, -1, -0.6)));
         TrackViewport3D.Children.Add(new ModelVisual3D { Content = scene });
 
-        double cameraDistance = span * 1.35;
-        PerspectiveCamera camera = new()
-        {
-            Position = new Point3D(0, cameraDistance * 0.9, cameraDistance),
-            LookDirection = new Vector3D(0, -cameraDistance * 0.9, -cameraDistance),
-            UpDirection = new Vector3D(0, 1, 0),
-            FieldOfView = 45
-        };
-        TrackViewport3D.Camera = camera;
+        _cameraDistance = Math.Max(span * 0.001 * 1.8, 8);
+        _cameraYaw = -35;
+        _cameraPitch = 28;
+        Update3DCamera();
+        StatusText.Text = model.Summary;
     }
 
-    private static Point3D To3D(double x, double z, double centerX, double centerZ)
-        => new Point3D(x - centerX, 0, z - centerZ);
+    private void Update3DCamera()
+    {
+        double yaw = _cameraYaw * Math.PI / 180.0;
+        double pitch = Math.Clamp(_cameraPitch, -80, 80) * Math.PI / 180.0;
+        double horizontal = _cameraDistance * Math.Cos(pitch);
+        Vector3D offset = new(horizontal * Math.Sin(yaw), _cameraDistance * Math.Sin(pitch), horizontal * Math.Cos(yaw));
+        Point3D position = new(offset.X, offset.Y, offset.Z);
+        TrackViewport3D.Camera = new PerspectiveCamera
+        {
+            Position = position,
+            LookDirection = new Vector3D(-position.X, -position.Y, -position.Z),
+            UpDirection = new Vector3D(0, 1, 0),
+            FieldOfView = 45,
+            NearPlaneDistance = 0.01,
+            FarPlaneDistance = Math.Max(10000, _cameraDistance * 100)
+        };
+    }
+
+    private void TrackViewport3D_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != System.Windows.Input.MouseButton.Left) return;
+        _cameraDragging = true;
+        _lastCameraMouse = e.GetPosition(TrackViewport3D);
+        TrackViewport3D.CaptureMouse();
+    }
+
+    private void TrackViewport3D_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (!_cameraDragging) return;
+        Point current = e.GetPosition(TrackViewport3D);
+        _cameraYaw += (current.X - _lastCameraMouse.X) * 0.55;
+        _cameraPitch -= (current.Y - _lastCameraMouse.Y) * 0.45;
+        _lastCameraMouse = current;
+        Update3DCamera();
+    }
+
+    private void TrackViewport3D_MouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        _cameraDragging = false;
+        TrackViewport3D.ReleaseMouseCapture();
+    }
+
+    private void TrackViewport3D_MouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    {
+        _cameraDistance = Math.Clamp(_cameraDistance * (e.Delta > 0 ? 0.88 : 1.14), 1, 50000);
+        Update3DCamera();
+    }
 
     private void OverlayToggle_Changed(object sender, RoutedEventArgs e)
     {
@@ -533,6 +564,7 @@ public partial class TrackMapPage : Page
         public string Summary { get; set; } = "";
         public KmpDocument? Kmp { get; set; }
         public LexDocument? Lex { get; set; }
+        public BrresModelReader.DecodeResult? CourseModel { get; set; }
         public double CanvasWidth { get; set; } = MapWidth;
         public double CanvasHeight { get; set; } = MapHeight;
         public List<TrackWaypoint> Waypoints { get; set; } = [];
