@@ -1,4 +1,16 @@
 using DebugManager.Models;
+using DebugManager.Rendering;
+using OpenTK.GLControl;
+using OpenTK.Graphics.OpenGL4;
+using OpenTK.Windowing.Common;
+using OpenTK.Mathematics;
+using WF = System.Windows.Forms;
+using Point = System.Windows.Point;
+using Color = System.Windows.Media.Color;
+using Brush = System.Windows.Media.Brush;
+using Brushes = System.Windows.Media.Brushes;
+using Image = System.Windows.Controls.Image;
+using Vector3 = DebugManager.Services.TrackFormats.Vector3;
 using DebugManager.Services;
 using DebugManager.Services.TrackFormats;
 using System.IO;
@@ -16,6 +28,31 @@ namespace DebugManager.Pages;
 public partial class TrackMapPage : Page
 {
     private readonly MainWindow _mainWindow;
+    private readonly BrresOpenGlRenderer _openGlRenderer = new();
+    private bool _openGlStarted;
+    private bool _openGlFailed;
+    private GLControl? _glControl;
+    private bool _openGlStarting;
+    private bool _openGlFailureQueued;
+    private bool _openGlFirstFrameLogged;
+    private bool _glRenderBusy;
+    private System.Windows.Threading.DispatcherTimer? _glFrameTimer;
+    private System.Drawing.Point _glLastMouse;
+    private bool _glDragging;
+
+    // This file survives a native graphics-driver crash (which a C# catch cannot handle).
+    private static readonly string OpenGlLogPath = System.IO.Path.Combine(
+        System.IO.Path.GetTempPath(), "DebugManager-OpenGL-startup.log");
+
+    private static void LogOpenGl(string message)
+    {
+        try
+        {
+            System.IO.File.AppendAllText(OpenGlLogPath,
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}");
+        }
+        catch { /* logging must never crash the viewer */ }
+    }
     private CancellationTokenSource? _cancellation;
     private TrackDefinition? _track;
     private bool _baseDrawn;
@@ -40,6 +77,21 @@ public partial class TrackMapPage : Page
         Loaded += OnLoaded;
         Unloaded += (_, _) =>
         {
+            // GL resources are owned by the GL context and released there on the next render.
+            _openGlRenderer.SetModel(null);
+            StopGlFrameTimer();
+            // Detach native child before releasing it; no GL calls after disposal.
+            if (_glControl is not null)
+            {
+                try
+                {
+                    TrackOpenGlHost.Child = null;
+                    _glControl.Dispose();
+                }
+                catch (Exception ex) { LogOpenGl("GL host dispose: " + ex.Message); }
+                _glControl = null;
+                _openGlStarted = false;
+            }
             _cancellation?.Cancel();
             if (_cameraInputWindow is not null)
             {
@@ -222,12 +274,197 @@ public partial class TrackMapPage : Page
         Map2DScroll.Visibility = show3D ? Visibility.Collapsed : Visibility.Visible;
         Map3DPanel.Visibility = show3D ? Visibility.Visible : Visibility.Collapsed;
         View3DToggle.Content = show3D ? "2D MAP" : "3D TEST";
+        UpdateRendererSelection();
         if (show3D && TrackViewport3D.Children.Count == 0) Build3DPrototype();
+    }
+
+    private void OpenGlToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (TrackOpenGlHost is null || TrackViewport3D is null) return;
+        UpdateRendererSelection();
+    }
+
+    private void UpdateRendererSelection()
+    {
+        if (TrackOpenGlHost is null || TrackViewport3D is null) return;
+        bool useGl = View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true && !_openGlFailed;
+        TrackOpenGlHost.Visibility = useGl ? Visibility.Visible : Visibility.Collapsed;
+        TrackViewport3D.Visibility = useGl ? Visibility.Collapsed : Visibility.Visible;
+        // WinForms' HWND is above WPF elements even if the latter are later in the XAML.
+        OpenGlStatus.Visibility = Visibility.Collapsed;
+        if (!useGl) { StopGlFrameTimer(); return; }
+        if (_openGlStarted) { StartGlFrameTimer(); return; }
+        if (_openGlStarting) return;
+        _openGlStarting = true;
+        LogOpenGl("GLControl selected; scheduling native control creation");
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
+        {
+            try
+            {
+                if (View3DToggle.IsChecked != true || OpenGlToggle.IsChecked != true || _openGlFailed)
+                    return;
+                LogOpenGl($"BEFORE WinForms GLControl creation; host size={TrackOpenGlHost.ActualWidth:0}x{TrackOpenGlHost.ActualHeight:0}");
+                _glControl = new GLControl(new GLControlSettings
+                {
+                    APIVersion = new Version(3, 3, 0, 0),
+                    Profile = ContextProfile.Core,
+                    Flags = ContextFlags.Default
+                }) { Dock = WF.DockStyle.Fill, TabStop = true };
+                _glControl.MouseDown += GlMouseDown;
+                _glControl.MouseMove += GlMouseMove;
+                _glControl.MouseUp += GlMouseUp;
+                _glControl.MouseWheel += GlMouseWheel;
+                _glControl.KeyDown += GlKeyDown;
+                TrackOpenGlHost.Child = _glControl;
+                LogOpenGl("BEFORE GLControl.MakeCurrent()");
+                _glControl.MakeCurrent();
+                LogOpenGl("AFTER GLControl.MakeCurrent(); GL_VERSION=" + GL.GetString(StringName.Version));
+                _openGlStarted = true;
+                StartGlFrameTimer();
+            }
+            catch (Exception ex) { DisableOpenGl(ex); }
+            finally { _openGlStarting = false; }
+        }));
+    }
+
+    private void StartGlFrameTimer()
+    {
+        _glFrameTimer ??= new System.Windows.Threading.DispatcherTimer(
+            TimeSpan.FromMilliseconds(33), System.Windows.Threading.DispatcherPriority.Render,
+            (_, _) => RenderOpenGlFrame(), Dispatcher);
+        _glFrameTimer.Start();
+    }
+
+    private void StopGlFrameTimer() => _glFrameTimer?.Stop();
+
+    private void RenderOpenGlFrame()
+    {
+        if (_glRenderBusy || !_openGlStarted || _glControl is not { IsDisposed: false } control ||
+            !control.IsHandleCreated || View3DToggle.IsChecked != true || OpenGlToggle.IsChecked != true ||
+            _openGlFailed || TrackOpenGlHost.Visibility != Visibility.Visible) return;
+        _glRenderBusy = true;
+        try
+        {
+            control.MakeCurrent();
+            if (!_openGlFirstFrameLogged)
+            {
+                _openGlFirstFrameLogged = true;
+                LogOpenGl("FIRST GL frame; model=" + (_track?.CourseModel is null ? "null" : "present"));
+            }
+            _openGlRenderer.Draw(_track?.CourseModel, Math.Max(1, control.ClientSize.Width),
+                Math.Max(1, control.ClientSize.Height),
+                _cameraYaw, _cameraPitch, _cameraDistance, _cameraTarget);
+            control.SwapBuffers();
+        }
+        catch (Exception ex) { DisableOpenGl(ex); }
+        finally { _glRenderBusy = false; }
+    }
+
+    private void DisableOpenGl(Exception ex)
+    {
+        if (_openGlFailureQueued) return;
+        _openGlFailureQueued = true;
+        _openGlFailed = true;
+        StopGlFrameTimer();
+        LogOpenGl("OpenGL disabled: " + ex);
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() =>
+        {
+            OpenGlToggle.IsChecked = false;
+            StatusText.ToolTip = $"OpenGL failed (WPF restored): {ex}\nLog: {OpenGlLogPath}";
+            UpdateRendererSelection();
+        }));
+    }
+
+    // Native WinForms mouse events do not bubble into the WPF Viewport3D handlers.
+    private void GlMouseDown(object? sender, WF.MouseEventArgs e)
+    {
+        if (e.Button != WF.MouseButtons.Left) return;
+        _cameraNavigationActive = true;
+        _glControl?.Focus();
+        _glDragging = true;
+        _glLastMouse = e.Location;
+        if (_glControl is not null) _glControl.Capture = true;
+    }
+
+    private void GlMouseMove(object? sender, WF.MouseEventArgs e)
+    {
+        if (!_glDragging) return;
+        _cameraYaw += (e.X - _glLastMouse.X) * 0.55;
+        _cameraPitch -= (e.Y - _glLastMouse.Y) * 0.45;
+        _glLastMouse = e.Location;
+        Update3DCamera();
+    }
+
+    private void GlMouseUp(object? sender, WF.MouseEventArgs e)
+    {
+        if (e.Button != WF.MouseButtons.Left) return;
+        _glDragging = false;
+        if (_glControl is not null) _glControl.Capture = false;
+    }
+
+    private void GlMouseWheel(object? sender, WF.MouseEventArgs e)
+    {
+        _cameraDistance = Math.Clamp(_cameraDistance * (e.Delta > 0 ? 0.88 : 1.14), 1, 50000);
+        Update3DCamera();
+    }
+
+    private void CycleTevInputPreview()
+    {
+        _openGlRenderer.TevInputPreviewMode = (_openGlRenderer.TevInputPreviewMode + 1) % 4;
+        string label = _openGlRenderer.TevInputPreviewMode switch
+        {
+            1 => "TEV stage 0 texture-input preview (not blended)",
+            2 => "TEV stage 1 texture-input preview (not blended)",
+            3 => "Step 6d.2 experimental two-stage TEV equations (initial registers/post-matrices approximate)",
+            _ => "Verified first-layer baseline"
+        };
+        LogOpenGl("Step 6d: " + label);
+        System.Diagnostics.Debug.WriteLine("Step 6d: " + label);
+    }
+
+    private void GlKeyDown(object? sender, WF.KeyEventArgs e)
+    {
+        if (e.KeyCode == WF.Keys.F8)
+        {
+            CycleTevInputPreview();
+            e.Handled = true;
+            return;
+        }
+        if (!_cameraNavigationActive) return;
+        if (e.KeyCode == WF.Keys.R)
+        {
+            _cameraTarget = new Point3D(0, 0, 0);
+            Update3DCamera();
+            e.Handled = true;
+            return;
+        }
+        double forward = e.KeyCode switch
+        {
+            WF.Keys.Z or WF.Keys.W or WF.Keys.Up => 1,
+            WF.Keys.S or WF.Keys.Down => -1,
+            _ => 0
+        };
+        double sideways = e.KeyCode switch
+        {
+            WF.Keys.D or WF.Keys.Right => 1,
+            WF.Keys.Q or WF.Keys.A or WF.Keys.Left => -1,
+            _ => 0
+        };
+        if (forward == 0 && sideways == 0) return;
+        double yaw = _cameraYaw * Math.PI / 180.0;
+        Vector3D towardFocus = new(-Math.Sin(yaw), 0, -Math.Cos(yaw));
+        Vector3D right = new(Math.Cos(yaw), 0, -Math.Sin(yaw));
+        double speed = Math.Clamp(_cameraDistance * 0.045, 0.15, 100);
+        if (e.Shift) speed *= 3;
+        _cameraTarget += (towardFocus * forward + right * sideways) * speed;
+        Update3DCamera();
+        e.Handled = true;
     }
 
     private void Build3DPrototype()
     {
         TrackViewport3D.Children.Clear();
+        _openGlRenderer.SetModel(_track?.CourseModel);
         if (_track?.CourseModel is not { } model)
         {
             StatusText.Text = "3D model unavailable · " + (_track?.Summary ?? "No track loaded");
@@ -312,16 +549,16 @@ public partial class TrackMapPage : Page
     {
         if (e.ChangedButton != System.Windows.Input.MouseButton.Left) return;
         _cameraNavigationActive = true;
-        System.Windows.Input.Keyboard.Focus(TrackViewport3D);
+        System.Windows.Input.Keyboard.Focus((System.Windows.IInputElement)sender);
         _cameraDragging = true;
-        _lastCameraMouse = e.GetPosition(TrackViewport3D);
-        TrackViewport3D.CaptureMouse();
+        _lastCameraMouse = e.GetPosition((System.Windows.IInputElement)sender);
+        ((System.Windows.UIElement)sender).CaptureMouse();
     }
 
     private void TrackViewport3D_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
         if (!_cameraDragging) return;
-        Point current = e.GetPosition(TrackViewport3D);
+        Point current = e.GetPosition((System.Windows.IInputElement)sender);
         _cameraYaw += (current.X - _lastCameraMouse.X) * 0.55;
         _cameraPitch -= (current.Y - _lastCameraMouse.Y) * 0.45;
         _lastCameraMouse = current;
@@ -331,7 +568,7 @@ public partial class TrackMapPage : Page
     private void TrackViewport3D_MouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         _cameraDragging = false;
-        TrackViewport3D.ReleaseMouseCapture();
+        ((System.Windows.UIElement)sender).ReleaseMouseCapture();
     }
 
     private void TrackViewport3D_MouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
@@ -343,6 +580,13 @@ public partial class TrackMapPage : Page
     // Camera-relative QZSD / WASD navigation. Focus the 3D viewport by clicking it.
     private void TrackMapPage_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
+            e.Key == System.Windows.Input.Key.F8)
+        {
+            CycleTevInputPreview();
+            e.Handled = true;
+            return;
+        }
         if (View3DToggle.IsChecked != true || !_cameraNavigationActive)
             return;
         // Do not steal keystrokes from editable controls.
@@ -578,7 +822,7 @@ public partial class TrackMapPage : Page
                     Foreground = Brushes.White,
                     FontWeight = FontWeights.Bold,
                     FontSize = Math.Max(10, iconSize * 0.32),
-                    HorizontalAlignment = HorizontalAlignment.Center,
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 });
             }
