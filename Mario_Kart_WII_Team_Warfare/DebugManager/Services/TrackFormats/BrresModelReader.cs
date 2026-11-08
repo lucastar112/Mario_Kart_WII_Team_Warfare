@@ -23,16 +23,43 @@ public static class BrresModelReader
         int SkippedPolygonCount,
         IReadOnlyList<string> Warnings,
         Point3D Minimum,
-        Point3D Maximum)
+        Point3D Maximum,
+        BrresMaterialDiagnostics.Report Materials,
+        IReadOnlyList<UvPolygon> UvPolygons, int UvDecodedPolygons, int UvMissingPolygons, int UvFailedPolygons,
+        IReadOnlyList<PolygonSurface> PolygonSurfaces,
+        IReadOnlyDictionary<int, BrresMaterialDiagnostics.SurfaceMaterial> SurfaceMaterials,
+        IReadOnlyDictionary<string, BrresMaterialDiagnostics.TexturePixels> TexturePixels,
+        IReadOnlyList<string> MaterialLayerDiagnostics,
+        int Uv1DecodedPolygons, int Uv1MissingPolygons, int Uv1FailedPolygons)
     {
+        // Step 6c: parsed XF generators are available to the later TEV shader pass.
+        // No geometry or first-layer rendering behavior is changed here.
+        internal IReadOnlyDictionary<int, BrresTexCoordGenerators.Material> TexCoordGenerators { get; init; }
+            = new Dictionary<int, BrresTexCoordGenerators.Material>();
+
+        internal IReadOnlyDictionary<int, IReadOnlyList<BrresTevCompositor.Layer>> TevLayers { get; init; }
+            = new Dictionary<int, IReadOnlyList<BrresTevCompositor.Layer>>();
+
+        internal IReadOnlyDictionary<int, BrresTevDiagnostics.Shader> TevShaders { get; init; }
+            = new Dictionary<int, BrresTevDiagnostics.Shader>();
+
         public string Summary =>
             $"BRRES mesh · {DecodedPolygonCount}/{PolygonCount} polygons · " +
             $"{DisplayVertices:N0} display vertices · {TriangleCount:N0} triangles" +
-            (SkippedPolygonCount > 0 ? $" · {SkippedPolygonCount} skipped" : "");
+            (SkippedPolygonCount > 0 ? $" · {SkippedPolygonCount} skipped" : "") +
+            $" · materials {Materials.AssignedPolygons}/{Materials.PolygonCount} · " +
+            $"textures {Materials.DecodedTextures}/{Materials.TextureCount} decoded";
     }
 
+    // Validated polygon geometry is retained separately for material rendering.
+    public sealed record PolygonSurface(int ObjectIndex, int PolygonOffset, IReadOnlyList<Point3D> Corners,
+        IReadOnlyList<System.Windows.Point>? Uvs,
+        IReadOnlyList<System.Windows.Point>? Uvs1);
+
+    // UVs are stored per triangle corner (not per position), preserving texture seams.
+    public sealed record UvPolygon(int PolygonOffset, int MaterialIndex, IReadOnlyList<System.Windows.Point> TriangleUvs);
     private sealed record PositionGroup(float[] Values, int Count);
-    private sealed record Polygon(int Offset, int Vertices, int Faces, int PositionGroup,
+    internal sealed record Polygon(int Offset, int Vertices, int Faces, int PositionGroup, int MaterialIndex, int TexCoord0Group, int TexCoord1Group,
         uint VcdLow, uint VcdHigh, int DisplayOffset, int DisplayLength, Dictionary<byte, uint> Cp);
     private sealed record Primitive(int Topology, int Vat, int Count, int PayloadOffset, int Stride, int PositionOffset, int PositionWidth);
 
@@ -61,6 +88,20 @@ public static class BrresModelReader
         PositionGroup[] groups = ReadPositionGroups(b, mdl, mdlLength, vertexGroupOffset);
         List<Polygon> polygons = ReadPolygons(b, mdl, mdlLength, polygonGroupOffset);
 
+        List<UvPolygon> uvPolygons = [];
+        List<PolygonSurface> surfaces = [];
+        List<string> uvWarnings = [];
+        int uvMissing = 0, uvFailed = 0, uv1Missing = 0, uv1Failed = 0, uv1Decoded = 0;
+        UvGroup[] uvGroups = [];
+        try
+        {
+            int uvSection = GetSection(b, mdl, mdlLength, 5);
+            uvGroups = ReadUvGroups(b, mdl, mdlLength, uvSection);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or OverflowException or ArgumentOutOfRangeException)
+        {
+            uvWarnings.Add($"UV0 group table unavailable: {ex.Message}");
+        }
         MeshGeometry3D mesh = new();
         Dictionary<(int Group, int Index), int> remap = [];
         List<string> warnings = [];
@@ -89,12 +130,19 @@ public static class BrresModelReader
                     throw new InvalidDataException($"display list has {consumedVertices} vertices; header declares {polygon.Vertices}.");
 
                 PositionGroup group = groups[polygon.PositionGroup];
-                int firstIndex = mesh.TriangleIndices.Count;
+                // Validate the entire polygon before changing the shared mesh. A failed
+                // polygon must never leave behind stray triangles or extreme bounds.
+                if (corners.Count % 3 != 0)
+                    throw new InvalidDataException("primitive expansion produced an incomplete triangle.");
+                int generatedTriangles = corners.Count / 3;
+                if (generatedTriangles != polygon.Faces)
+                    throw new InvalidDataException($"header declares {polygon.Faces} faces, GX stream produces {generatedTriangles}.");
                 foreach (int sourceIndex in corners)
-                {
                     if ((uint)sourceIndex >= (uint)group.Count)
                         throw new InvalidDataException($"position index {sourceIndex} is outside group {polygon.PositionGroup} ({group.Count} vertices).");
 
+                foreach (int sourceIndex in corners)
+                {
                     var key = (polygon.PositionGroup, sourceIndex);
                     if (!remap.TryGetValue(key, out int target))
                     {
@@ -108,15 +156,60 @@ public static class BrresModelReader
                     }
                     mesh.TriangleIndices.Add(target);
                 }
-
-                int generatedTriangles = (mesh.TriangleIndices.Count - firstIndex) / 3;
-                if ((mesh.TriangleIndices.Count - firstIndex) % 3 != 0)
-                    throw new InvalidDataException("primitive expansion produced an incomplete triangle.");
-                if (generatedTriangles != polygon.Faces)
-                    throw new InvalidDataException($"header declares {polygon.Faces} faces, GX stream produces {generatedTriangles}.");
                 displayVertices += consumedVertices;
                 triangles += generatedTriangles;
                 decoded++;
+                // UV errors never reject geometry or alter the working position mesh.
+                List<System.Windows.Point>? polygonUvs = null;
+                try
+                {
+                    if (polygon.TexCoord0Group == 0xFFFF)
+                        uvMissing++;
+                    else if ((uint)polygon.TexCoord0Group >= (uint)uvGroups.Length)
+                        throw new InvalidDataException($"UV0 group {polygon.TexCoord0Group} is unavailable.");
+                    else
+                    {
+                        List<System.Windows.Point> uvs = DecodePolygonUvs(
+                            b.Slice(polygon.DisplayOffset, polygon.DisplayLength), polygon,
+                            uvGroups[polygon.TexCoord0Group], 0);
+                        if (uvs.Count != corners.Count)
+                            throw new InvalidDataException($"UV0 triangle corners {uvs.Count} != geometry corners {corners.Count}.");
+                        uvPolygons.Add(new UvPolygon(polygon.Offset, polygon.MaterialIndex, uvs));
+                        polygonUvs = uvs;
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidDataException or OverflowException or ArgumentOutOfRangeException)
+                {
+                    uvFailed++;
+                    uvWarnings.Add($"Polygon 0x{polygon.Offset:X} UV0: {ex.Message}");
+                }
+                // UV1 is collected independently of UV0. Some objects intentionally lack a
+                // second coordinate channel; that is not a decoding failure.
+                List<System.Windows.Point>? polygonUvs1 = null;
+                try
+                {
+                    if (polygon.TexCoord1Group == 0xFFFF)
+                        uv1Missing++;
+                    else if ((uint)polygon.TexCoord1Group >= (uint)uvGroups.Length)
+                        throw new InvalidDataException($"UV1 group {polygon.TexCoord1Group} is unavailable.");
+                    else
+                    {
+                        List<System.Windows.Point> decodedUvs1 = DecodePolygonUvs(
+                            b.Slice(polygon.DisplayOffset, polygon.DisplayLength), polygon,
+                            uvGroups[polygon.TexCoord1Group], 1);
+                        if (decodedUvs1.Count != corners.Count)
+                            throw new InvalidDataException($"UV1 triangle corners {decodedUvs1.Count} != geometry corners {corners.Count}.");
+                        polygonUvs1 = decodedUvs1;
+                        uv1Decoded++;
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidDataException or OverflowException or ArgumentOutOfRangeException)
+                {
+                    uv1Failed++;
+                    uvWarnings.Add($"Polygon 0x{polygon.Offset:X} UV1: {ex.Message}");
+                }
+                surfaces.Add(new PolygonSurface(polygon.MaterialIndex, polygon.Offset,
+                    corners.Select(index => { int q = index * 3; return new Point3D(group.Values[q], group.Values[q + 1], group.Values[q + 2]); }).ToArray(), polygonUvs, polygonUvs1));
             }
             catch (Exception ex) when (ex is InvalidDataException or OverflowException or ArgumentOutOfRangeException)
             {
@@ -125,13 +218,30 @@ public static class BrresModelReader
             }
         }
 
+        if (warnings.Count > 0)
+            warnings.Insert(0, $"Geometry: {decoded}/{polygons.Count} polygons decoded; {warnings.Count} polygon failures. These are independent of material/texture diagnostics.");
+
         if (mesh.TriangleIndices.Count == 0)
             throw new InvalidDataException("No polygon produced valid track geometry. " +
                 string.Join(" | ", warnings.Take(4)));
 
         mesh.Freeze();
+        BrresMaterialDiagnostics.Report materialReport = BrresMaterialDiagnostics.Analyze(b, mdl, mdlLength, polygons);
+        warnings.AddRange(materialReport.Warnings);
+        if (uvWarnings.Count > 0)
+            warnings.AddRange(uvWarnings.Take(30));
         return new DecodeResult(mesh, polygons.Count, decoded, displayVertices, triangles,
-            polygons.Count - decoded, warnings, min, max);
+            polygons.Count - decoded, warnings, min, max, materialReport, uvPolygons, uvPolygons.Count, uvMissing, uvFailed, surfaces,
+            BrresMaterialDiagnostics.GetSurfaceMaterials(b, mdl, mdlLength),
+            BrresMaterialDiagnostics.GetTexturePixels(b),
+            BrresMaterialDiagnostics.DescribeTextureLayers(b, mdl, mdlLength),
+            uv1Decoded, uv1Missing, uv1Failed)
+        {
+            TexCoordGenerators = BrresTexCoordGenerators.Read(b, mdl, mdlLength),
+            TevLayers = BrresMaterialDiagnostics.GetTevLayers(b, mdl, mdlLength),
+            TevShaders = BrresTevDiagnostics.Inspect(b, mdl, mdlLength)
+                .ToDictionary(shader => shader.MaterialIndex)
+        };
     }
 
     private static PositionGroup[] ReadPositionGroups(ReadOnlySpan<byte> b, int mdl, uint mdlLength, int group)
@@ -212,6 +322,105 @@ public static class BrresModelReader
         return result;
     }
 
+    private sealed record UvGroup(float[] Values, int Count);
+
+    private static UvGroup[] ReadUvGroups(ReadOnlySpan<byte> b, int mdl, uint mdlLength, int group)
+    {
+        int count = checked((int)U32(b, group + 4));
+        if (count < 0 || count > 1024) throw new InvalidDataException($"Invalid UV group count {count}.");
+        UvGroup[] result = new UvGroup[count];
+        for (int i = 0; i < count; i++)
+        {
+            int entry = checked(group + 8 + (i + 1) * 16);
+            EnsureModelRange(entry, 16, mdl, mdlLength, b.Length);
+            int record = checked(group + (int)U32(b, entry + 12));
+            EnsureModelRange(record, 0x20, mdl, mdlLength, b.Length);
+            uint components = U32(b, record + 0x14);
+            uint format = U32(b, record + 0x18);
+            int divisor = b[record + 0x1C], stride = b[record + 0x1D];
+            int vertices = U16(b, record + 0x1E);
+            int dimension = components switch { 0 => 1, 1 => 2, _ => throw new InvalidDataException($"UV group {i}: invalid component count {components}.") };
+            int scalar = format switch { 0 or 1 => 1, 2 or 3 => 2, 4 => 4, _ => throw new InvalidDataException($"UV group {i}: invalid scalar format {format}.") };
+            if (divisor > 31 || stride < dimension * scalar)
+                throw new InvalidDataException($"UV group {i}: invalid stride/divisor.");
+            int data = checked(record + (int)U32(b, record + 8));
+            EnsureModelRange(data, checked(vertices * stride), mdl, mdlLength, b.Length);
+            float[] values = new float[checked(vertices * 2)];
+            for (int v = 0; v < vertices; v++)
+                for (int c = 0; c < dimension; c++)
+                {
+                    int at = data + v * stride + c * scalar;
+                    float value = ReadScalar(b, at, (int)format, divisor);
+                    if (!float.IsFinite(value)) throw new InvalidDataException($"UV group {i} has non-finite coordinates.");
+                    values[v * 2 + c] = value;
+                }
+            result[i] = new UvGroup(values, vertices);
+        }
+        return result;
+    }
+
+    private static float ReadScalar(ReadOnlySpan<byte> b, int offset, int format, int divisor)
+    {
+        float value = format switch
+        {
+            0 => b[offset], 1 => unchecked((sbyte)b[offset]),
+            2 => U16(b, offset), 3 => BinaryPrimitives.ReadInt16BigEndian(b.Slice(offset, 2)),
+            4 => F32(b, offset), _ => throw new InvalidDataException($"Unsupported UV scalar format {format}.")
+        };
+        return format == 4 ? value : value / (1u << divisor);
+    }
+
+    private static List<System.Windows.Point> DecodePolygonUvs(ReadOnlySpan<byte> dl, Polygon polygon, UvGroup group, int channel)
+    {
+        List<System.Windows.Point> result = [];
+        int cursor = 0;
+        while (cursor < dl.Length)
+        {
+            byte op = dl[cursor];
+            if (op == 0) { cursor++; continue; }
+            int topology = op & 0xF8;
+            if (topology is 0x80 or 0x90 or 0x98 or 0xA0)
+            {
+                if (cursor + 3 > dl.Length) throw new InvalidDataException("Truncated UV primitive header.");
+                int count = U16(dl, cursor + 1);
+                VertexLayout layout = BuildVertexLayout(polygon, op & 7);
+                cursor += 3;
+                int bytes = checked(count * layout.Stride);
+                if (cursor + bytes > dl.Length) throw new InvalidDataException("UV primitive exceeds display list.");
+                int uvOffset = channel == 0 ? layout.Uv0Offset : layout.Uv1Offset;
+                int uvDescriptor = channel == 0 ? layout.Uv0Descriptor : layout.Uv1Descriptor;
+                if (uvOffset < 0) throw new InvalidDataException($"UV{channel} attribute is absent from VCD.");
+                if (uvDescriptor is not (2 or 3))
+                    throw new InvalidDataException($"Direct UV{channel} attributes are not yet supported.");
+                System.Windows.Point[] points = new System.Windows.Point[count];
+                for (int v = 0; v < count; v++)
+                {
+                    int at = cursor + v * layout.Stride + uvOffset;
+                    int index = uvDescriptor == 2 ? dl[at] : U16(dl, at);
+                    if ((uint)index >= (uint)group.Count)
+                        throw new InvalidDataException($"UV{channel} index {index} exceeds group ({group.Count}).");
+                    points[v] = new System.Windows.Point(group.Values[index * 2], group.Values[index * 2 + 1]);
+                }
+                // Match the exact triangle expansion order of the position decoder.
+                List<int> expanded = [];
+                ExpandPrimitive(expanded, topology, System.Linq.Enumerable.Range(0, count).ToArray());
+                foreach (int index in expanded) result.Add(points[index]);
+                cursor += bytes;
+                continue;
+            }
+            if (op == 0x61) { cursor += 5; continue; }
+            if (op == 0x08) { cursor += 6; continue; }
+            if (op == 0x10)
+            {
+                if (cursor + 5 > dl.Length) throw new InvalidDataException("Truncated XF command.");
+                cursor += checked(5 + (U16(dl, cursor + 1) + 1) * 4);
+                continue;
+            }
+            throw new InvalidDataException($"Unsupported UV display-list opcode 0x{op:X2}.");
+        }
+        return result;
+    }
+
     private static List<Polygon> ReadPolygons(ReadOnlySpan<byte> b, int mdl, uint mdlLength, int group)
     {
         int count = checked((int)U32(b, group + 4));
@@ -260,7 +469,10 @@ public static class BrresModelReader
 
             int positionGroup = U16(b, obj + 0x48);
 
-            result.Add(new Polygon(obj, vertices, faces, positionGroup, vcdLow, vcdHigh,
+            int materialIndex = checked((int)U32(b, obj + 0x3C));
+            int texCoord0Group = U16(b, obj + 0x50);
+            int texCoord1Group = U16(b, obj + 0x52);
+            result.Add(new Polygon(obj, vertices, faces, positionGroup, materialIndex, texCoord0Group, texCoord1Group, vcdLow, vcdHigh,
                 display, checked((int)displaySize), cp));
         }
         return result;
@@ -364,7 +576,8 @@ public static class BrresModelReader
         return triangles;
     }
 
-    private sealed record VertexLayout(int Stride, int PositionOffset, int PositionWidth);
+    private sealed record VertexLayout(int Stride, int PositionOffset, int PositionWidth, int Uv0Offset, int Uv0Descriptor, int Uv0Components, int Uv0Format, int Uv0Divisor,
+        int Uv1Offset, int Uv1Descriptor);
 
     private static VertexLayout BuildVertexLayout(Polygon polygon, int vat)
     {
@@ -402,17 +615,32 @@ public static class BrresModelReader
         stride += ColorAttributeSize(Field(vcdLow, 13), Bits(vatA, 15, 3));
         stride += ColorAttributeSize(Field(vcdLow, 15), Bits(vatA, 20, 3));
 
-        // Texture coordinates 0..3 are in VCD_LO; 4..7 are in VCD_HI.
+        // GX VCD_HI contains texture-coordinate descriptors 0..7 (two bits each).
+        int uvOffset = -1, uvDescriptor = 0, uvComponents = 0, uvFormat = 0, uvDivisor = 0;
+        int uv1Offset = -1, uv1Descriptor = 0;
         for (int tex = 0; tex < 8; tex++)
         {
-            int descriptor = tex < 4 ? Field(vcdLow, 17 + tex * 2) : Field(vcdHigh, (tex - 4) * 2);
+            int descriptor = Field(vcdHigh, tex * 2);
             (int count, int format) = TextureVat(vatA, vatB, vatC, tex);
+            if (tex == 0 && descriptor != 0)
+            {
+                uvOffset = stride;
+                uvDescriptor = descriptor;
+                uvComponents = count == 0 ? 1 : 2;
+                uvFormat = format;
+                uvDivisor = Bits(vatA, 28, 4);
+            }
+            if (tex == 1 && descriptor != 0)
+            {
+                uv1Offset = stride;
+                uv1Descriptor = descriptor;
+            }
             stride += AttributeSize(descriptor, positionWidth, count == 0 ? 1 : 2, format);
         }
 
-        if (stride <= positionOffset + positionWidth || stride > 128)
+        if (stride < positionOffset + positionWidth || stride > 128)
             throw new InvalidDataException($"Calculated GX vertex stride {stride} is invalid.");
-        return new VertexLayout(stride, positionOffset, positionWidth);
+        return new VertexLayout(stride, positionOffset, positionWidth, uvOffset, uvDescriptor, uvComponents, uvFormat, uvDivisor, uv1Offset, uv1Descriptor);
     }
 
     private static (int Count, int Format) TextureVat(uint a, uint b, uint c, int tex)
@@ -433,7 +661,7 @@ public static class BrresModelReader
     private static int AttributeSize(int descriptor, int indexWidth, int components, int format)
     {
         if (descriptor == 0) return 0;
-        if (descriptor == 2) return indexWidth;
+        if (descriptor == 2) return 1;
         if (descriptor == 3) return 2;
         if (descriptor != 1) throw new InvalidDataException($"Unknown GX attribute descriptor {descriptor}.");
         int scalar = format switch

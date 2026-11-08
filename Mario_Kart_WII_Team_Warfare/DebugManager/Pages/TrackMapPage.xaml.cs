@@ -26,7 +26,10 @@ public partial class TrackMapPage : Page
     private double _cameraPitch = 28;
     private double _cameraDistance = 180;
     private Point _lastCameraMouse;
+    private Point3D _cameraTarget = new(0, 0, 0);
     private bool _cameraDragging;
+    private bool _cameraNavigationActive;
+    private System.Windows.Window? _cameraInputWindow;
     private const double MapWidth = 1100;
     private const double MapHeight = 700;
 
@@ -35,11 +38,27 @@ public partial class TrackMapPage : Page
         InitializeComponent();
         _mainWindow = mainWindow;
         Loaded += OnLoaded;
-        Unloaded += (_, _) => _cancellation?.Cancel();
+        Unloaded += (_, _) =>
+        {
+            _cancellation?.Cancel();
+            if (_cameraInputWindow is not null)
+            {
+                _cameraInputWindow.PreviewKeyDown -= TrackMapPage_PreviewKeyDown;
+                _cameraInputWindow = null;
+            }
+        };
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        System.Windows.Window? host = System.Windows.Window.GetWindow(this);
+        if (host is not null && !ReferenceEquals(host, _cameraInputWindow))
+        {
+            if (_cameraInputWindow is not null)
+                _cameraInputWindow.PreviewKeyDown -= TrackMapPage_PreviewKeyDown;
+            _cameraInputWindow = host;
+            host.PreviewKeyDown += TrackMapPage_PreviewKeyDown;
+        }
         _cancellation?.Cancel(); _cancellation?.Dispose(); _cancellation = new();
         try { await MonitorAsync(_cancellation.Token); }
         catch (OperationCanceledException) { }
@@ -228,9 +247,21 @@ public partial class TrackMapPage : Page
         transform.Children.Add(new TranslateTransform3D(-cx, -cy, -cz));
         transform.Children.Add(new ScaleTransform3D(0.001, 0.001, 0.001));
         Material material = new DiffuseMaterial(new SolidColorBrush(Color.FromRgb(155, 163, 168)));
-        GeometryModel3D geometry = new(source, material) { BackMaterial = material, Transform = transform };
         Model3DGroup scene = new();
-        scene.Children.Add(geometry);
+        BrresTiledRenderer.Result? textureResult = null;
+        try
+        {
+            textureResult = BrresTiledRenderer.Build(model);
+            textureResult.Models.Transform = transform;
+            scene.Children.Add(textureResult.Models);
+        }
+        catch (Exception ex)
+        {
+            // Never lose a working track mesh because of texture rendering.
+            GeometryModel3D geometry = new(source, material) { BackMaterial = material, Transform = transform };
+            scene.Children.Add(geometry);
+            StatusText.ToolTip = $"Textured renderer failed: {ex.Message}";
+        }
         scene.Children.Add(new AmbientLight(Color.FromRgb(105, 105, 105)));
         scene.Children.Add(new DirectionalLight(Colors.White, new Vector3D(-0.4, -1, -0.6)));
         TrackViewport3D.Children.Add(new ModelVisual3D { Content = scene });
@@ -238,8 +269,25 @@ public partial class TrackMapPage : Page
         _cameraDistance = Math.Max(span * 0.001 * 1.8, 8);
         _cameraYaw = -35;
         _cameraPitch = 28;
+        _cameraTarget = new Point3D(0, 0, 0);
         Update3DCamera();
         StatusText.Text = model.Summary;
+        StatusText.ToolTip = string.Join(Environment.NewLine, new[]
+        {
+            $"Geometry: {model.DecodedPolygonCount}/{model.PolygonCount} polygons decoded; {model.SkippedPolygonCount} skipped.",
+            $"Materials: {model.Materials.AssignedPolygons}/{model.Materials.PolygonCount} polygon assignments; textures {model.Materials.DecodedTextures}/{model.Materials.TextureCount} decoded.",
+            string.Join(Environment.NewLine, model.MaterialLayerDiagnostics),
+            $"UV0: {model.UvDecodedPolygons} polygons decoded; {model.UvMissingPolygons} without UV0; {model.UvFailedPolygons} UV failures (geometry preserved).",
+            $"UV1: {model.Uv1DecodedPolygons} polygons decoded; {model.Uv1MissingPolygons} without UV1; {model.Uv1FailedPolygons} UV failures (geometry preserved; TEV rendering not yet enabled).",
+            textureResult is null ? "Textured renderer unavailable; original grey mesh retained." :
+                $"Textured rendering: {textureResult.TexturedPolygons} polygons textured, {textureResult.FallbackPolygons} grey fallback, {textureResult.TileTriangles} output triangles. " +
+                $"Step 6c rendered: {textureResult.GeneratorPolygons} polygons using XF texgens ({textureResult.SrtPolygons} SRT-transformed), " +
+                $"{textureResult.LegacyUvPolygons} using safe legacy UV0 fallback. " +
+                $"Step 6d TEV: {textureResult.TevBakedPolygons} multi-stage polygons baked; " +
+                $"{textureResult.TevFallbackPolygons} multi-stage polygons kept on Step 6c fallback. " +
+                string.Join("; ", textureResult.TevReasons),
+            model.Warnings.Count == 0 ? "No geometry or resource warnings." : string.Join(Environment.NewLine, model.Warnings.Take(40))
+        });
     }
 
     private void Update3DCamera()
@@ -248,11 +296,11 @@ public partial class TrackMapPage : Page
         double pitch = Math.Clamp(_cameraPitch, -80, 80) * Math.PI / 180.0;
         double horizontal = _cameraDistance * Math.Cos(pitch);
         Vector3D offset = new(horizontal * Math.Sin(yaw), _cameraDistance * Math.Sin(pitch), horizontal * Math.Cos(yaw));
-        Point3D position = new(offset.X, offset.Y, offset.Z);
+        Point3D position = _cameraTarget + offset;
         TrackViewport3D.Camera = new PerspectiveCamera
         {
             Position = position,
-            LookDirection = new Vector3D(-position.X, -position.Y, -position.Z),
+            LookDirection = _cameraTarget - position,
             UpDirection = new Vector3D(0, 1, 0),
             FieldOfView = 45,
             NearPlaneDistance = 0.01,
@@ -263,6 +311,8 @@ public partial class TrackMapPage : Page
     private void TrackViewport3D_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         if (e.ChangedButton != System.Windows.Input.MouseButton.Left) return;
+        _cameraNavigationActive = true;
+        System.Windows.Input.Keyboard.Focus(TrackViewport3D);
         _cameraDragging = true;
         _lastCameraMouse = e.GetPosition(TrackViewport3D);
         TrackViewport3D.CaptureMouse();
@@ -288,6 +338,53 @@ public partial class TrackMapPage : Page
     {
         _cameraDistance = Math.Clamp(_cameraDistance * (e.Delta > 0 ? 0.88 : 1.14), 1, 50000);
         Update3DCamera();
+    }
+
+    // Camera-relative QZSD / WASD navigation. Focus the 3D viewport by clicking it.
+    private void TrackMapPage_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (View3DToggle.IsChecked != true || !_cameraNavigationActive)
+            return;
+        // Do not steal keystrokes from editable controls.
+        if (System.Windows.Input.Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase
+            || System.Windows.Input.Keyboard.FocusedElement is System.Windows.Controls.PasswordBox)
+            return;
+
+        // Avoid intercepting keyboard shortcuts while an editable control has focus.
+        var key = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
+        if (key == System.Windows.Input.Key.R)
+        {
+            _cameraTarget = new Point3D(0, 0, 0);
+            Update3DCamera();
+            e.Handled = true;
+            return;
+        }
+
+        double forward = key switch
+        {
+            System.Windows.Input.Key.Z or System.Windows.Input.Key.W or System.Windows.Input.Key.Up => 1,
+            System.Windows.Input.Key.S or System.Windows.Input.Key.Down => -1,
+            _ => 0
+        };
+        double sideways = key switch
+        {
+            System.Windows.Input.Key.D or System.Windows.Input.Key.Right => 1,
+            System.Windows.Input.Key.Q or System.Windows.Input.Key.A or System.Windows.Input.Key.Left => -1,
+            _ => 0
+        };
+        if (forward == 0 && sideways == 0) return;
+
+        // Keep navigation parallel to the course plane, independent of camera pitch.
+        double yaw = _cameraYaw * Math.PI / 180.0;
+        Vector3D towardFocus = new(-Math.Sin(yaw), 0, -Math.Cos(yaw));
+        Vector3D right = new(Math.Cos(yaw), 0, -Math.Sin(yaw));
+        double speed = Math.Clamp(_cameraDistance * 0.045, 0.15, 100);
+        if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0)
+            speed *= 3;
+        Vector3D move = (towardFocus * forward + right * sideways) * speed;
+        _cameraTarget += move;
+        Update3DCamera();
+        e.Handled = true;
     }
 
     private void OverlayToggle_Changed(object sender, RoutedEventArgs e)
