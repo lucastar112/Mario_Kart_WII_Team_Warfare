@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Windows;
+using Point = System.Windows.Point;
 
 namespace DebugManager.Services.TrackFormats;
 
@@ -194,6 +195,42 @@ internal static class BrresTexCoordGenerators
         }
         output = result;
         transformed = true;
+        return true;
+    }
+
+    // Step 6d.1: Resolve each TEV stage's texcoord independently.
+    // The stage's TextureMap is resolved separately against TevLayers.
+    internal static bool TryResolveStageUvs(
+        BrresModelReader.PolygonSurface surface, Material material, int texCoord,
+        out IReadOnlyList<Point>? output, bool allowUnresolvedPostMatrix3ForPreview = false)
+    {
+        output = null;
+        var gen = material.ForTexCoord(texCoord);
+        // GX DUALTEX post-transform matrix index 3 is NOT proven identity.
+        // Diagnostic stage-input previews can approximate it using the direct UV/SRT
+        // path, but full TEV rendering must decode and apply the actual matrix.
+        // No change to TryResolveFirstLayerUvs or the normal WPF/OpenGL baseline.
+        bool matrixAccepted = gen is not null && (gen.DualMatrix == 0 ||
+            (allowUnresolvedPostMatrix3ForPreview && gen.DualMatrix == 3));
+        if (gen is null || !gen.DirectUv || !gen.EffectIdentity || !matrixAccepted || !AreFinite(gen))
+            return false;
+        var input = gen.InputUv == 0 ? surface.Uvs : surface.Uvs1;
+        if (input is null || input.Count != surface.Corners.Count) return false;
+        if (gen.NeutralMatrix) { output = input; return true; }
+        double radians = gen.Rotation * Math.PI / 180.0;
+        double c = Math.Cos(radians), s = Math.Sin(radians);
+        var result = new Point[input.Count];
+        for (int i = 0; i < input.Count; i++)
+        {
+            double u = (input[i].X - 0.5) * gen.ScaleU;
+            double v = (input[i].Y - 0.5) * gen.ScaleV;
+            double x = u * c - v * s + 0.5 + gen.TranslateU;
+            double y = u * s + v * c + 0.5 + gen.TranslateV;
+            if (!double.IsFinite(x) || !double.IsFinite(y) ||
+                Math.Abs(x) > 100000 || Math.Abs(y) > 100000) return false;
+            result[i] = new Point(x, y);
+        }
+        output = result;
         return true;
     }
 
