@@ -43,6 +43,15 @@ public static class BrresModelReader
         internal IReadOnlyDictionary<int, BrresTevDiagnostics.Shader> TevShaders { get; init; }
             = new Dictionary<int, BrresTevDiagnostics.Shader>();
 
+        internal IReadOnlyDictionary<int, BrresTevDiagnostics.MaterialKonst> TevKonst { get; init; }
+            = new Dictionary<int, BrresTevDiagnostics.MaterialKonst>();
+
+        internal IReadOnlyDictionary<int, BrresTevDiagnostics.RasterChannel0> TevRasterChannels { get; init; }
+            = new Dictionary<int, BrresTevDiagnostics.RasterChannel0>();
+
+        internal IReadOnlyDictionary<int, BrresTevDiagnostics.InitialRegisters> TevInitialRegisters { get; init; }
+            = new Dictionary<int, BrresTevDiagnostics.InitialRegisters>();
+
         public string Summary =>
             $"BRRES mesh · {DecodedPolygonCount}/{PolygonCount} polygons · " +
             $"{DisplayVertices:N0} display vertices · {TriangleCount:N0} triangles" +
@@ -54,12 +63,16 @@ public static class BrresModelReader
     // Validated polygon geometry is retained separately for material rendering.
     public sealed record PolygonSurface(int ObjectIndex, int PolygonOffset, IReadOnlyList<Point3D> Corners,
         IReadOnlyList<System.Windows.Point>? Uvs,
-        IReadOnlyList<System.Windows.Point>? Uvs1);
+        IReadOnlyList<System.Windows.Point>? Uvs1)
+    {
+        // Optional GX color0, per expanded triangle corner. Null = raster data unresolved.
+        public IReadOnlyList<System.Windows.Media.Color>? Colors0 { get; init; }
+    }
 
     // UVs are stored per triangle corner (not per position), preserving texture seams.
     public sealed record UvPolygon(int PolygonOffset, int MaterialIndex, IReadOnlyList<System.Windows.Point> TriangleUvs);
     private sealed record PositionGroup(float[] Values, int Count);
-    internal sealed record Polygon(int Offset, int Vertices, int Faces, int PositionGroup, int MaterialIndex, int TexCoord0Group, int TexCoord1Group,
+    internal sealed record Polygon(int Offset, int Vertices, int Faces, int PositionGroup, int MaterialIndex, int TexCoord0Group, int TexCoord1Group, int Color0Group,
         uint VcdLow, uint VcdHigh, int DisplayOffset, int DisplayLength, Dictionary<byte, uint> Cp);
     private sealed record Primitive(int Topology, int Vat, int Count, int PayloadOffset, int Stride, int PositionOffset, int PositionWidth);
 
@@ -102,6 +115,10 @@ public static class BrresModelReader
         {
             uvWarnings.Add($"UV0 group table unavailable: {ex.Message}");
         }
+        ColorGroup[] colorGroups = [];
+        try { colorGroups = ReadColorGroups(b, mdl, mdlLength, GetSection(b, mdl, mdlLength, 4)); }
+        catch (Exception ex) when (ex is InvalidDataException or OverflowException or ArgumentOutOfRangeException)
+        { uvWarnings.Add($"Color0 group table unavailable: {ex.Message}"); }
         MeshGeometry3D mesh = new();
         Dictionary<(int Group, int Index), int> remap = [];
         List<string> warnings = [];
@@ -208,8 +225,22 @@ public static class BrresModelReader
                     uv1Failed++;
                     uvWarnings.Add($"Polygon 0x{polygon.Offset:X} UV1: {ex.Message}");
                 }
+                IReadOnlyList<System.Windows.Media.Color>? colors0 = null;
+                try
+                {
+                    if (polygon.Color0Group != 0xFFFF && (uint)polygon.Color0Group < (uint)colorGroups.Length)
+                    {
+                        var c = DecodePolygonColors(b.Slice(polygon.DisplayOffset, polygon.DisplayLength), polygon,
+                            colorGroups[polygon.Color0Group], 0);
+                        if (c.Count == corners.Count) colors0 = c;
+                        else uvWarnings.Add($"Polygon 0x{polygon.Offset:X} color0: count mismatch.");
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidDataException or OverflowException or ArgumentOutOfRangeException)
+                { uvWarnings.Add($"Polygon 0x{polygon.Offset:X} color0: {ex.Message}"); }
                 surfaces.Add(new PolygonSurface(polygon.MaterialIndex, polygon.Offset,
-                    corners.Select(index => { int q = index * 3; return new Point3D(group.Values[q], group.Values[q + 1], group.Values[q + 2]); }).ToArray(), polygonUvs, polygonUvs1));
+                    corners.Select(index => { int q = index * 3; return new Point3D(group.Values[q], group.Values[q + 1], group.Values[q + 2]); }).ToArray(), polygonUvs, polygonUvs1)
+                { Colors0 = colors0 });
             }
             catch (Exception ex) when (ex is InvalidDataException or OverflowException or ArgumentOutOfRangeException)
             {
@@ -240,7 +271,10 @@ public static class BrresModelReader
             TexCoordGenerators = BrresTexCoordGenerators.Read(b, mdl, mdlLength),
             TevLayers = BrresMaterialDiagnostics.GetTevLayers(b, mdl, mdlLength),
             TevShaders = BrresTevDiagnostics.Inspect(b, mdl, mdlLength)
-                .ToDictionary(shader => shader.MaterialIndex)
+                .ToDictionary(shader => shader.MaterialIndex),
+            TevKonst = BrresTevDiagnostics.ReadMaterialKonst(b, mdl, mdlLength),
+            TevInitialRegisters = BrresTevDiagnostics.ReadInitialRegisters(b, mdl, mdlLength),
+            TevRasterChannels = BrresTevDiagnostics.ReadRasterChannel0(b, mdl, mdlLength)
         };
     }
 
@@ -359,6 +393,111 @@ public static class BrresModelReader
         return result;
     }
 
+    private sealed record ColorGroup(System.Windows.Media.Color[] Values, int Count);
+
+    private static ColorGroup[] ReadColorGroups(ReadOnlySpan<byte> b, int mdl, uint mdlLength, int group)
+    {
+        int count = checked((int)U32(b, group + 4));
+        if (count < 0 || count > 1024) throw new InvalidDataException("Invalid MDL0 color group count.");
+        var result = new ColorGroup[count];
+        for (int i = 0; i < count; i++)
+        {
+            int entry = checked(group + 8 + (i + 1) * 16);
+            EnsureModelRange(entry, 16, mdl, mdlLength, b.Length);
+            int record = checked(group + (int)U32(b, entry + 12));
+            EnsureModelRange(record, 0x20, mdl, mdlLength, b.Length);
+            int format = checked((int)U32(b, record + 0x18));
+            if (format is < 0 or > 5) throw new InvalidDataException("Unsupported GX color format.");
+            int bytes = format switch { 0 or 3 => 2, 1 or 4 => 3, _ => 4 };
+            int stride = b[record + 0x1C];
+            int n = U16(b, record + 0x1E);
+            if (stride < bytes) throw new InvalidDataException("Invalid MDL0 color stride.");
+            int data = checked(record + (int)U32(b, record + 8));
+            EnsureModelRange(data, checked(stride * n), mdl, mdlLength, b.Length);
+            var colors = new System.Windows.Media.Color[n];
+            for (int j = 0; j < n; ++j) colors[j] = DecodePackedColor(b, data + j * stride, format);
+            result[i] = new ColorGroup(colors, n);
+        }
+        return result;
+    }
+
+    private static System.Windows.Media.Color DecodePackedColor(ReadOnlySpan<byte> b, int offset, int format)
+    {
+        static byte Expand(int v, int bits) => (byte)(v * 255 / ((1 << bits) - 1));
+        byte r, g, blue, a = 255;
+        switch (format)
+        {
+            case 0: // RGB565
+                int rgb = U16(b, offset);
+                r = Expand((rgb >> 11) & 31, 5); g = Expand((rgb >> 5) & 63, 6); blue = Expand(rgb & 31, 5);
+                break;
+            case 1: case 2: // RGB8 / RGBX8
+                r = b[offset]; g = b[offset + 1]; blue = b[offset + 2];
+                break;
+            case 3: // RGBA4
+                int rgba4 = U16(b, offset);
+                r = Expand((rgba4 >> 12) & 15, 4); g = Expand((rgba4 >> 8) & 15, 4);
+                blue = Expand((rgba4 >> 4) & 15, 4); a = Expand(rgba4 & 15, 4);
+                break;
+            case 4: // RGBA6
+                int rgba6 = (b[offset] << 16) | (b[offset + 1] << 8) | b[offset + 2];
+                r = Expand((rgba6 >> 18) & 63, 6); g = Expand((rgba6 >> 12) & 63, 6);
+                blue = Expand((rgba6 >> 6) & 63, 6); a = Expand(rgba6 & 63, 6);
+                break;
+            case 5: // RGBA8
+                r = b[offset]; g = b[offset + 1]; blue = b[offset + 2]; a = b[offset + 3];
+                break;
+            default: throw new InvalidDataException("Invalid GX color format.");
+        }
+        return System.Windows.Media.Color.FromArgb(a, r, g, blue);
+    }
+
+    private static List<System.Windows.Media.Color> DecodePolygonColors(ReadOnlySpan<byte> dl,
+        Polygon polygon, ColorGroup group, int channel)
+    {
+        var result = new List<System.Windows.Media.Color>();
+        int cursor = 0;
+        while (cursor < dl.Length)
+        {
+            byte op = dl[cursor];
+            if (op == 0) { cursor++; continue; }
+            int topology = op & 0xF8;
+            if (topology is 0x80 or 0x90 or 0x98 or 0xA0)
+            {
+                if (cursor + 3 > dl.Length) throw new InvalidDataException("Truncated color primitive.");
+                int count = U16(dl, cursor + 1);
+                var layout = BuildVertexLayout(polygon, op & 7);
+                cursor += 3;
+                int bytes = checked(count * layout.Stride);
+                if (cursor + bytes > dl.Length) throw new InvalidDataException("Truncated color payload.");
+                if (channel != 0 || layout.Color0Offset < 0)
+                    throw new InvalidDataException("Color0 missing from GX VCD.");
+                var colors = new System.Windows.Media.Color[count];
+                for (int i = 0; i < count; ++i)
+                {
+                    int at = cursor + i * layout.Stride + layout.Color0Offset;
+                    colors[i] = layout.Color0Descriptor switch
+                    {
+                        1 => DecodePackedColor(dl, at, layout.Color0Format),
+                        2 => dl[at] < group.Count ? group.Values[dl[at]] : throw new InvalidDataException("Color index out of range."),
+                        3 => U16(dl, at) < group.Count ? group.Values[U16(dl, at)] : throw new InvalidDataException("Color index out of range."),
+                        _ => throw new InvalidDataException("Unsupported color descriptor.")
+                    };
+                }
+                var expanded = new List<int>();
+                ExpandPrimitive(expanded, topology, Enumerable.Range(0, count).ToArray());
+                foreach (int index in expanded) result.Add(colors[index]);
+                cursor += bytes;
+                continue;
+            }
+            if (op == 0x61) { cursor += 5; continue; }
+            if (op == 0x08) { cursor += 6; continue; }
+            if (op == 0x10) { cursor += checked(5 + (U16(dl, cursor + 1) + 1) * 4); continue; }
+            throw new InvalidDataException($"Unsupported color GX opcode 0x{op:X2}.");
+        }
+        return result;
+    }
+
     private static float ReadScalar(ReadOnlySpan<byte> b, int offset, int format, int divisor)
     {
         float value = format switch
@@ -472,7 +611,8 @@ public static class BrresModelReader
             int materialIndex = checked((int)U32(b, obj + 0x3C));
             int texCoord0Group = U16(b, obj + 0x50);
             int texCoord1Group = U16(b, obj + 0x52);
-            result.Add(new Polygon(obj, vertices, faces, positionGroup, materialIndex, texCoord0Group, texCoord1Group, vcdLow, vcdHigh,
+            int color0Group = U16(b, obj + 0x4C);
+            result.Add(new Polygon(obj, vertices, faces, positionGroup, materialIndex, texCoord0Group, texCoord1Group, color0Group, vcdLow, vcdHigh,
                 display, checked((int)displaySize), cp));
         }
         return result;
@@ -577,7 +717,7 @@ public static class BrresModelReader
     }
 
     private sealed record VertexLayout(int Stride, int PositionOffset, int PositionWidth, int Uv0Offset, int Uv0Descriptor, int Uv0Components, int Uv0Format, int Uv0Divisor,
-        int Uv1Offset, int Uv1Descriptor);
+        int Uv1Offset, int Uv1Descriptor, int Color0Offset, int Color0Descriptor, int Color0Format);
 
     private static VertexLayout BuildVertexLayout(Polygon polygon, int vat)
     {
@@ -612,7 +752,10 @@ public static class BrresModelReader
             ((vatA >> 9) & 1) != 0 ? 9 : 3, Bits(vatA, 10, 3));
 
         // Two colour attributes, each with fixed byte size selected by its VAT format.
-        stride += ColorAttributeSize(Field(vcdLow, 13), Bits(vatA, 15, 3));
+        int color0Descriptor = Field(vcdLow, 13);
+        int color0Format = Bits(vatA, 15, 3);
+        int color0Offset = color0Descriptor == 0 ? -1 : stride;
+        stride += ColorAttributeSize(color0Descriptor, color0Format);
         stride += ColorAttributeSize(Field(vcdLow, 15), Bits(vatA, 20, 3));
 
         // GX VCD_HI contains texture-coordinate descriptors 0..7 (two bits each).
@@ -640,7 +783,7 @@ public static class BrresModelReader
 
         if (stride < positionOffset + positionWidth || stride > 128)
             throw new InvalidDataException($"Calculated GX vertex stride {stride} is invalid.");
-        return new VertexLayout(stride, positionOffset, positionWidth, uvOffset, uvDescriptor, uvComponents, uvFormat, uvDivisor, uv1Offset, uv1Descriptor);
+        return new VertexLayout(stride, positionOffset, positionWidth, uvOffset, uvDescriptor, uvComponents, uvFormat, uvDivisor, uv1Offset, uv1Descriptor, color0Offset, color0Descriptor, color0Format);
     }
 
     private static (int Count, int Format) TextureVat(uint a, uint b, uint c, int tex)
