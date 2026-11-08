@@ -55,7 +55,7 @@ internal sealed class BrresOpenGlRenderer
     private const bool UseWpfParitySource = true;
 
     // F8: 0 = verified baseline, 1/2 = raw stage input, 3 = experimental two-stage TEV equations.
-    // Mode 3 still approximates raster lighting and GX post-texture matrices.
+    // Mode 3 still approximates unsupported raster lighting and nonidentity GX post matrices.
     internal int TevInputPreviewMode { get; set; }
     private sealed record TevInputBatch(int Vao, int Vbo, int VertexCount,
         int Texture0, int Texture1, int MaterialIndex, int Stage0, int Stage1,
@@ -361,7 +361,7 @@ internal sealed class BrresOpenGlRenderer
     /// </summary>
     private void UploadTevInputBatches(BrresModelReader.DecodeResult model)
     {
-        int eligible = 0, skipped = 0, approximatePostMatrix3 = 0, equationsSupported = 0;
+        int eligible = 0, skipped = 0, verifiedPostMatrix3 = 0, unresolvedPostMatrix3 = 0, equationsSupported = 0;
         var equationReject = new Dictionary<string, int>(StringComparer.Ordinal);
         var rejectCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         var rejectionDetails = new List<string>();
@@ -394,11 +394,12 @@ internal sealed class BrresOpenGlRenderer
             if (gen.Normalize) reason += "/normalize";
             if (gen.MapMode != 0) reason += "/mapMode";
             if (!gen.EffectIdentity) reason += "/effect";
-            if (gen.DualMatrix != 0) reason += "/dualMatrix";
+            if (gen.DualMatrix != 0 && !gen.ExactPostMatrix) reason += "/unresolvedDualMatrix";
             if (input is null || input.Count != surface.Corners.Count) reason += "/missingInput";
             return $"coord={texCoord}, generator={gen.Id}, row={gen.SourceRow}, inputUV={gen.InputUv}, " +
                 $"type={gen.Type}, projection={gen.Projection}, inputForm={gen.InputForm}, " +
                 $"normalize={gen.Normalize}, mapMode={gen.MapMode}, dualMatrix={gen.DualMatrix}, " +
+                $"verifiedIdentityPost={gen.VerifiedIdentityPostMatrix}, " +
                 $"effectIdentity={gen.EffectIdentity}, " +
                 $"SRT=({gen.ScaleU:G6},{gen.ScaleV:G6},{gen.Rotation:G6},{gen.TranslateU:G6},{gen.TranslateV:G6}), " +
                 $"sourceCount={input?.Count ?? 0}, corners={surface.Corners.Count}, check={reason}";
@@ -544,7 +545,13 @@ internal sealed class BrresOpenGlRenderer
                 sampled[0], sampled[1], konst, initial, rasterChannel, hasVertexRaster, equationSupported));
             eligible++;
             if (sampled.Any(s => generators.ForTexCoord(s.TexCoord)?.DualMatrix == 3))
-                approximatePostMatrix3++;
+            {
+                if (sampled.Where(s => generators.ForTexCoord(s.TexCoord)?.DualMatrix == 3)
+                    .All(s => generators.ForTexCoord(s.TexCoord)?.ExactPostMatrix == true))
+                    verifiedPostMatrix3++;
+                else
+                    unresolvedPostMatrix3++;
+            }
         }
         GL.BindVertexArray(0);
         WriteDiagnostic($"Step 6d.1 GPU TEV inputs: {eligible} eligible; {skipped} skipped. " +
@@ -570,11 +577,14 @@ internal sealed class BrresOpenGlRenderer
             $"{equationsSupported * 16} across {equationsSupported} equation-ready surfaces; " +
             $"{initialMissing} unset channels use zero as an EXPLICIT approximation.");
         WriteDiagnostic($"Step 6d.2 GLSL TEV equations: {equationsSupported} preview candidates / {eligible} input-ready surfaces; " +
-            "decoded initial TEV registers where available; WHITE raster inputs and unresolved post-matrix 3 remain APPROXIMATIONS; baseline unchanged.");
+            "decoded initial TEV registers where available; vertex Color0/channel0 where available; " +
+            "unresolved GX texgens remain approximated only in previews; baseline unchanged.");
         foreach (var r in equationReject.OrderByDescending(p => p.Value))
             WriteDiagnostic($"Step 6d.2 equation fallback {r.Value}x: {r.Key}");
-        WriteDiagnostic($"Step 6d.1 preview approximation: {approximatePostMatrix3} eligible surfaces " +
-            "use unresolved GX DUALTEX post-matrix index 3 (raw UV/SRT shown; not exact GX coordinates).");
+        WriteDiagnostic($"Step 6d.4 GX post matrices: {verifiedPostMatrix3} input-ready surfaces " +
+            "have identity 3x4 matrices in the MDL0 material data for DUALTEX index 3; " +
+            $"{unresolvedPostMatrix3} still approximate this index in F8 previews. " +
+            "Non-identity matrices and projected texgens remain on fallback.");
         foreach (var pair in rejectCounts.OrderByDescending(p => p.Value))
             WriteDiagnostic($"Step 6d.1 reject {pair.Value}x: {pair.Key}");
         foreach (var detail in rejectionDetails)

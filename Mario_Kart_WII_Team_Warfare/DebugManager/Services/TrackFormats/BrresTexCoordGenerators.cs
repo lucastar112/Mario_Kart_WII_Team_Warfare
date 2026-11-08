@@ -15,12 +15,17 @@ internal static class BrresTexCoordGenerators
     internal sealed record Generator(int Id, int SourceRow, int InputUv, int Type,
         int Projection, int InputForm, bool Normalize, int DualMatrix,
         float ScaleU, float ScaleV, float Rotation, float TranslateU, float TranslateV,
-        bool EffectIdentity, int MapMode)
+        bool EffectIdentity, int MapMode, bool VerifiedIdentityPostMatrix)
     {
         // Non-UV and projected/emboss generators require normals, raster colors,
         // or other vertex attributes that our current GX decoder does not expose.
         internal bool DirectUv => Type == 0 && InputUv is >= 0 and <= 1 &&
             Projection == 0 && !Normalize && MapMode == 0;
+        // A nonzero DUALTEX selector is not itself evidence of a nonidentity transform.
+        // MDL0 TexMtxEffect contains the corresponding 3x4 transform in BE floats.
+        // Verify all 12 values before treating post-matrix selector 3 as identity.
+        internal bool ExactPostMatrix => DualMatrix == 0 ||
+            (DualMatrix == 3 && VerifiedIdentityPostMatrix);
         internal bool NeutralMatrix => EffectIdentity &&
             Math.Abs(ScaleU - 1) < 0.000001f && Math.Abs(ScaleV - 1) < 0.000001f &&
             Math.Abs(Rotation) < 0.000001f && Math.Abs(TranslateU) < 0.000001f &&
@@ -97,13 +102,21 @@ internal static class BrresTexCoordGenerators
                 // XF SourceRow 5 = TexCoord0, 6 = TexCoord1, etc.
                 int uv = sourceRow is >= 5 and <= 12 ? sourceRow - 5 : -1;
                 uint dualFlags = dual.GetValueOrDefault(id);
+                // TexMtxEffect layout: 4-byte flags followed by a BE 3x4 matrix.
+                // For Mario Circuit's direct UV1 stage, XF DUALTEX selector 3
+                // corresponds to its second post-transform slot. We validate the
+                // stored matrix instead of assuming the selector is identity.
+                // Other selectors or nonidentity matrices remain unsupported.
+                bool verifiedIdentityPost = bytes[(int)effect + 3] != 0 &&
+                    IsIdentity3x4(bytes, (int)effect + 4);
                 generators[id] = new Generator(id, sourceRow, uv,
                     (int)((flags >> 4) & 7), (int)((flags >> 1) & 1),
                     (int)((flags >> 2) & 3), ((dualFlags >> 8) & 0xFF) != 0,
                     (int)(dualFlags & 0xFF),
                     F32(bytes, (int)srt), F32(bytes, (int)srt + 4), F32(bytes, (int)srt + 8),
                     F32(bytes, (int)srt + 12), F32(bytes, (int)srt + 16),
-                    bytes[(int)effect + 3] != 0, bytes[(int)effect + 2]);
+                    bytes[(int)effect + 3] != 0, bytes[(int)effect + 2],
+                    verifiedIdentityPost);
             }
             result[index] = new Material(index, layers, generators,
                 layers > 0 && generators.Count < layers ? $"XF texgens resolved {generators.Count}/{layers}" : null);
@@ -210,7 +223,7 @@ internal static class BrresTexCoordGenerators
         // Diagnostic stage-input previews can approximate it using the direct UV/SRT
         // path, but full TEV rendering must decode and apply the actual matrix.
         // No change to TryResolveFirstLayerUvs or the normal WPF/OpenGL baseline.
-        bool matrixAccepted = gen is not null && (gen.DualMatrix == 0 ||
+        bool matrixAccepted = gen is not null && (gen.ExactPostMatrix ||
             (allowUnresolvedPostMatrix3ForPreview && gen.DualMatrix == 3));
         if (gen is null || !gen.DirectUv || !gen.EffectIdentity || !matrixAccepted || !AreFinite(gen))
             return false;
@@ -231,6 +244,22 @@ internal static class BrresTexCoordGenerators
             result[i] = new Point(x, y);
         }
         output = result;
+        return true;
+    }
+
+    private static bool IsIdentity3x4(ReadOnlySpan<byte> bytes, int offset)
+    {
+        // Row-major GX 3x4 identity. An explicit tolerance handles harmless
+        // floating-point differences while never accepting NaN/Infinity.
+        if (offset < 0 || offset > bytes.Length - 48) return false;
+        for (int row = 0; row < 3; row++)
+        for (int col = 0; col < 4; col++)
+        {
+            float actual = F32(bytes, offset + (row * 4 + col) * 4);
+            float expected = col == row ? 1f : 0f;
+            if (!float.IsFinite(actual) || Math.Abs(actual - expected) > 0.00001f)
+                return false;
+        }
         return true;
     }
 
