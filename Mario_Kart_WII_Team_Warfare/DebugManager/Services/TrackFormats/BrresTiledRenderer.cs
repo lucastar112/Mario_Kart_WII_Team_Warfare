@@ -3,6 +3,8 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
+using Point = System.Windows.Point;
+using Color = System.Windows.Media.Color;
 
 namespace DebugManager.Services.TrackFormats;
 
@@ -47,7 +49,8 @@ public static class BrresTiledRenderer
                 out var resolvedUvs, out bool hasSrt);
             // Keep the known-working first-layer UV0 fallback if GX evaluation
             // is unsupported. Never alter geometry or the UV array in DecodeResult.
-            var activeUvs = resolved && resolvedUvs is not null ? resolvedUvs : polygon.Uvs!;
+            IReadOnlyList<Point> activeUvs =
+                resolved && resolvedUvs is not null ? resolvedUvs : polygon.Uvs!;
             string activeTextureName = material.TextureName!;
             // Step 6d first pass: precombine only TEV stages that can share the
             // first layer's exact generated UVs. No changes to vertex geometry.
