@@ -431,6 +431,12 @@ public partial class TrackMapPage : Page
             15 => "Step 6e window-frame A/B: all TEV ON, regular TEV polygon offset OFF",
             16 => "Step 6e window-frame A/B: regular TEV with SRC_ALPHA blending (indirect/projected unchanged)",
             17 => "Step 6e window-frame A/B: regular TEV forced 50% blend for comparison (NOT GX-exact)",
+            18 => "Step 6f Pass 2: single-stage generalized TEV overlays (EXPERIMENTAL)",
+            19 => "Step 6f Pass 3: generalized consolidated TEV (regular + water + projected + single-stage; DEFAULT)",
+            20 => "Step 6f Pass 4: generalized TEV GX comparison operations (EXPERIMENTAL; same batches as mode 19)",
+            21 => "Step 6f Pass 5a: GX TEV texture/raster swap tables + comparison operations (EXPERIMENTAL)",
+            22 => "Step 6f Pass 5b: GX signed 11-bit TEV register writeback (A/B, EXPERIMENTAL)",
+            23 => "Step 6f Pass 5e: complete GX TEV stage order, texture-disabled stages + up to 3 distinct texture inputs (EXPERIMENTAL)",
             _ => "Verified first-layer baseline"
         };
         LogOpenGl("Step 6d: " + label);
@@ -441,12 +447,12 @@ public partial class TrackMapPage : Page
     private void ToggleBaselineVsConsolidated()
     {
         _openGlRenderer.TevInputPreviewMode =
-            _openGlRenderer.TevInputPreviewMode == BrresOpenGlRenderer.ConsolidatedTevMode
+            _openGlRenderer.TevInputPreviewMode == BrresOpenGlRenderer.SingleStageWithConsolidatedMode
                 ? BrresOpenGlRenderer.BaselineMode
-                : BrresOpenGlRenderer.ConsolidatedTevMode;
+                : BrresOpenGlRenderer.SingleStageWithConsolidatedMode;
         string label = _openGlRenderer.TevInputPreviewMode == BrresOpenGlRenderer.BaselineMode
             ? "original WPF-parity OpenGL baseline (F9)"
-            : "consolidated experimental TEV (F9; regular + water + projected)";
+            : "generalized consolidated TEV (F9; regular + water + projected + single-stage)";
         LogOpenGl("Step 6e: " + label);
         System.Diagnostics.Debug.WriteLine("Step 6e: " + label);
     }
@@ -465,8 +471,34 @@ public partial class TrackMapPage : Page
         System.Diagnostics.Debug.WriteLine(status);
     }
 
+    private void CycleMaterial7InputTest()
+    {
+        string status = _openGlRenderer.CycleMaterial7InputTest();
+        LogOpenGl(status);
+        System.Diagnostics.Debug.WriteLine(status);
+    }
+
+    private void CycleMaterial7UvSamplingTest()
+    {
+        string status = _openGlRenderer.CycleMaterial7UvSamplingTest();
+        LogOpenGl(status);
+        System.Diagnostics.Debug.WriteLine(status);
+    }
+
     private void GlKeyDown(object? sender, WF.KeyEventArgs e)
     {
+        if (e.KeyCode == WF.Keys.F7)
+        {
+            CycleMaterial7UvSamplingTest();
+            e.Handled = true;
+            return;
+        }
+        if (e.KeyCode == WF.Keys.F12)
+        {
+            CycleMaterial7InputTest();
+            e.Handled = true;
+            return;
+        }
         if (e.KeyCode == WF.Keys.F11)
         {
             CycleMaterial7StageTest();
@@ -641,6 +673,20 @@ public partial class TrackMapPage : Page
     // Camera-relative QZSD / WASD navigation. Focus the 3D viewport by clicking it.
     private void TrackMapPage_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
+            e.Key == System.Windows.Input.Key.F7)
+        {
+            CycleMaterial7UvSamplingTest();
+            e.Handled = true;
+            return;
+        }
+        if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
+            e.Key == System.Windows.Input.Key.F12)
+        {
+            CycleMaterial7InputTest();
+            e.Handled = true;
+            return;
+        }
         if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
             e.Key == System.Windows.Input.Key.F11)
         {

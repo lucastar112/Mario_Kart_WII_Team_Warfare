@@ -16,8 +16,17 @@ internal static class BrresTevDiagnostics
         int AlphaBias, bool AlphaSubtract, bool AlphaClamp, int AlphaScale, int AlphaDestination,
         int KonstColor, int KonstAlpha, int RasterSwap, int TextureSwap, int IndirectCommand);
 
+    // Each of the four BP TEV swap tables is an RGBA swizzle (indices 0..3).
+    // Complete means that all eight source TEV_KSEL writes were found in the
+    // MDL0 shader command stream. Incomplete tables must not be treated as exact.
+    internal sealed record SwapTables(int[][] Channels, bool[] Complete)
+    {
+        internal bool IsComplete(int selector) => selector is >= 0 and < 4 && Complete[selector];
+        internal int[] For(int selector) => Channels[selector];
+    }
+
     internal sealed record Shader(int MaterialIndex, int ShaderOffset, int DeclaredStages, IReadOnlyList<Stage> Stages,
-        string? Problem);
+        string? Problem, SwapTables? Swaps = null);
 
     // GX konst colors are stored in each MDL0 v11 material's 0x180-byte
     // BP setup list, NOT in the shared TEV shader stage record.
@@ -295,7 +304,75 @@ internal static class BrresTevDiagnostics
                     (int)((ksel >> kshift) & 31), (int)((ksel >> (kshift + 5)) & 31),
                     (int)(alpha & 3), (int)((alpha >> 2) & 3), (int)indirect));
             }
-            shaders.Add(new Shader(i, (int)shader, declared, stages, problem));
+            // Shader BP setup is encoded at the start of the shader display list;
+            // StageGroup's first BPCommand is TEV_KSEL for its stage pair.
+            // Two consecutive TEV_KSEL registers hold one RGBA swap table:
+            // lower four payload bits supply two 2-bit channel selectors each.
+            // We only enable the table when both writes are actually present.
+            var kselValues = new uint[8];
+            var kselKnownBits = new uint[8];
+            void RecordKsel(int address, uint value, uint writeMask)
+            {
+                int slot = address - 0xF6;
+                if (slot is < 0 or >= 8) return;
+                kselValues[slot] = (kselValues[slot] & ~writeMask) | (value & writeMask);
+                kselKnownBits[slot] |= writeMask;
+            }
+            int shaderLength = (int)Math.Min(ReadU32(b, (int)shader), end - shader);
+            long scanEnd = shaderLength >= 0x20 ? Math.Min(shader + shaderLength, end) : shader + 0x80;
+            // The GX BP_MASK (0xFE) applies to the next BP register write.
+            // A masked KONST update does not make the swap low nibble known.
+            uint pendingMask = 0xFFFFFF;
+            for (long at = shader + 0x20; at + 5 <= Math.Min(shader + 0x80, scanEnd); at++)
+            {
+                if (b[(int)at] != 0x61 || !TryCommand(b, (int)at, out uint payload)) continue;
+                int address = b[(int)at + 1];
+                if (address == 0xFE) pendingMask = payload;
+                else
+                {
+                    if (address is >= 0xF6 and <= 0xFD)
+                        RecordKsel(address, payload, pendingMask);
+                    pendingMask = 0xFFFFFF;
+                }
+                at += 4;
+            }
+            // StageGroup stores BP_MASK at +0 and TEV_KSEL at +5.
+            for (int groupIndex = 0; groupIndex < (declared + 1) / 2; groupIndex++)
+            {
+                long groupAt = shader + 0x80 + groupIndex * 0x30L;
+                long kselAt = groupAt + 5;
+                if (kselAt + 5 > scanEnd || b[(int)kselAt] != 0x61 ||
+                    !TryCommand(b, (int)kselAt, out uint payload)) continue;
+                int address = b[(int)kselAt + 1];
+                if (address is < 0xF6 or > 0xFD) continue;
+                uint mask = 0xFFFFFF;
+                if (b[(int)groupAt] == 0x61 && b[(int)groupAt + 1] == 0xFE &&
+                    TryCommand(b, (int)groupAt, out uint groupMask))
+                    mask = groupMask;
+                RecordKsel(address, payload, mask);
+            }
+            int[][] swaps = new int[4][];
+            bool[] complete = new bool[4];
+            for (int tableIndex = 0; tableIndex < 4; tableIndex++)
+            {
+                swaps[tableIndex] = [0, 1, 2, 3];
+                int firstSlot = tableIndex * 2;
+                int secondSlot = firstSlot + 1;
+                // All four low bits in both KSEL values must be established
+                // by observed BP writes, after applying BP_MASK semantics.
+                if ((kselKnownBits[firstSlot] & 0xF) != 0xF ||
+                    (kselKnownBits[secondSlot] & 0xF) != 0xF) continue;
+                uint first = kselValues[firstSlot];
+                uint second = kselValues[secondSlot];
+                swaps[tableIndex] =
+                [
+                    (int)(first & 3), (int)((first >> 2) & 3),
+                    (int)(second & 3), (int)((second >> 2) & 3)
+                ];
+                complete[tableIndex] = true;
+            }
+            shaders.Add(new Shader(i, (int)shader, declared, stages, problem,
+                new SwapTables(swaps, complete)));
         }
         return shaders;
     }
