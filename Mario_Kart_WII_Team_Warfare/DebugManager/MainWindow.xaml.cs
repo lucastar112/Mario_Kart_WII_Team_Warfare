@@ -35,4 +35,9 @@ public partial class MainWindow : Window
     {
         MainFrame.Navigate(new ItemsPage(this));
     }
+
+    public void ShowLibraryValidation()
+    {
+        MainFrame.Navigate(new LibraryValidationPage(this));
+    }
 }

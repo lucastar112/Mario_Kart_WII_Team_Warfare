@@ -23,4 +23,5 @@ public partial class MainMenuPage : Page
     private void TrackMap_Click(object sender, MouseButtonEventArgs e) => _mainWindow.ShowTrackMap();
     private void PlayerStatus_Click(object sender, MouseButtonEventArgs e) => _mainWindow.ShowPlayerStatus();
     private void Items_Click(object sender, MouseButtonEventArgs e) => _mainWindow.ShowItems();
+    private void LibraryValidation_Click(object sender, MouseButtonEventArgs e) => _mainWindow.ShowLibraryValidation();
 }

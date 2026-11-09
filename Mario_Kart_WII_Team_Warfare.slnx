@@ -1,8 +1,10 @@
 <Solution>
+  <Project Path="../../libraries/GameManager.Tools/GameManager.Tools/GameManager.Tools.csproj" />
   <Project Path="../../GameManagerSolution/GameManagerSolution.csproj" />
   <Project Path="../../libraries/GameManager.Dolphin/GameManager.Dolphin/GameManager.Dolphin.csproj" />
   <Project Path="../../libraries/GameManager.Shared/GameManager.Shared/GameManager.Shared.csproj" />
   <Project Path="../../tests/GameManager.Dolphin.Tests/GameManager.Dolphin.Tests.csproj" />
+  <Project Path="../../tests/GameManager.Tools.Tests/GameManager.Tools.Tests.csproj" />
   <Project Path="../../tests/GameManager.Shared.Tests/GameManager.Shared.Tests.csproj" />
   <Project Path="../../tests/GameManager.Tests/GameManager.Tests.csproj" />
   <Project Path="../../tests/MTWManager.Tests/MTWManager.Tests.csproj" />

@@ -92,6 +92,25 @@
                 </StackPanel>
             </Border>
 
+            <!-- Temporary portable library validation (independent of the track renderer) -->
+            <Border Width="300" Height="240" Margin="15" CornerRadius="12"
+                    Background="#2A3744" Cursor="Hand" MouseLeftButtonUp="LibraryValidation_Click">
+                <StackPanel>
+                    <Border Height="170" Background="#183445" CornerRadius="12,12,0,0">
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="54"
+                                       Foreground="#66D9EF" HorizontalAlignment="Center"/>
+                            <TextBlock Text="KMP / BRRES" FontSize="23" FontWeight="Bold"
+                                       Foreground="#D9EFFA" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+                            <TextBlock Text="Portable library diagnostics" FontSize="13"
+                                       Foreground="#A9C9DC" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Text="Library Validation" Foreground="White" FontSize="22"
+                               FontWeight="Bold" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+                </StackPanel>
+            </Border>
+
             <!-- Scene Data -->
             <Border Width="300"
                     Height="240"

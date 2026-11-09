@@ -7,11 +7,16 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using DebugManager.Services.TrackFormats;
 using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 using GlVector3 = OpenTK.Mathematics.Vector3;
-using PixelFormat = OpenTK.Graphics.OpenGL4.PixelFormat;
+using GlPixelFormat = OpenTK.Graphics.OpenGL4.PixelFormat;
+
 
 namespace DebugManager.Rendering;
 
@@ -55,8 +60,8 @@ internal sealed class BrresOpenGlRenderer
     // comparing the two views and implementing shared graphics-neutral batches.
     private const bool UseWpfParitySource = true;
 
-    // Step 6e: render the consolidated preview by default, while keeping the
-    // original WPF-parity baseline explicitly selectable (F8 mode 0 / F9).
+    // Step 6f Pass 3: generalized 24-batch consolidated rendering is the default.
+    // Mode 13 retains the original 15-batch reference; F9 compares mode 19 with baseline.
     // These constants are also used by the page's keyboard controls.
     internal const int BaselineMode = 0;
     internal const int RegularTevMode = 3;
@@ -69,9 +74,17 @@ internal sealed class BrresOpenGlRenderer
     internal const int ConsolidatedRegularNoOffsetMode = 15;
     internal const int ConsolidatedRegularAlphaBlendMode = 16;
     internal const int ConsolidatedRegularHalfBlendMode = 17;
-    internal const int PreviewModeCount = 18;
+    internal const int SingleStageTevTestMode = 18;
+    internal const int SingleStageWithConsolidatedMode = 19;
+    internal const int ExtendedTevCompareMode = 20;
+    internal const int ExtendedTevSwapMode = 21;
+    internal const int ExtendedTevPrecisionMode = 22;
+    // Pass 5e uses the full decoded stage stream, including texture-disabled
+    // stages and independently routed third texture inputs. Mode 19 is untouched.
+    internal const int CompleteTevStagesMode = 23;
+    internal const int PreviewModeCount = 24;
     // All experimental paths retain their existing GX precision/UV limitations.
-    internal int TevInputPreviewMode { get; set; } = ConsolidatedTevMode;
+    internal int TevInputPreviewMode { get; set; } = SingleStageWithConsolidatedMode;
     private sealed record TevInputBatch(int Vao, int Vbo, int VertexCount,
         int Texture0, int Texture1, int MaterialIndex, int Stage0, int Stage1,
         BrresTevDiagnostics.Stage Equation0, BrresTevDiagnostics.Stage Equation1,
@@ -81,7 +94,437 @@ internal sealed class BrresOpenGlRenderer
         bool HasVertexRaster, bool EquationSupported,
         int IndirectTexture = 0, float[]? IndirectRowS = null, float[]? IndirectRowT = null,
         float IndirectScale = 1f, int IndirectBias = 0, bool ApproximateRegularUv = false,
-        bool ProjectedStage1 = false);
+        bool ProjectedStage1 = false, int StageCount = 2,
+        int Texture2 = 0,
+        BrresTevDiagnostics.Stage[]? CompleteStages = null,
+        int[]? StageSamplerSlots = null);
+    // Step 6f Pass 1: renderer-neutral *planning* for the complete decoded TEV
+    // stage stream. Unlike TevInputBatch, this plan is not restricted to two
+    // texture-enabled stages. No GL buffers or shader programs are created here.
+    // Later passes will consume these plans when the generalized evaluator exists.
+    private sealed record GeneralTevStagePlan(
+        BrresTevDiagnostics.Stage Equation,
+        string? TextureName,
+        bool TextureAvailable,
+        bool TexgenAvailable,
+        bool UsesProjectedTexgen,
+        bool UsesIndirect);
+
+    private sealed record GeneralTevMaterialPlan(
+        int MaterialIndex,
+        int DeclaredStageCount,
+        GeneralTevStagePlan[] Stages,
+        string? Issue)
+    {
+        public int TexturedStageCount => Stages.Count(stage => stage.Equation.TextureEnabled);
+        public int TextureDisabledStageCount => Stages.Length - TexturedStageCount;
+        public bool RequiresIndirect => Stages.Any(stage => stage.UsesIndirect);
+        public bool RequiresProjection => Stages.Any(stage => stage.UsesProjectedTexgen);
+    }
+
+    private GeneralTevMaterialPlan[] _generalTevPlans = [];
+
+    // IMPORTANT: this method is intentionally diagnostic-only in Pass 1.
+    // Current two-stage eligibility, shader, F7-F12 tests and GPU batch ownership
+    // remain exactly as they were in Step 6e.
+    private void BuildGeneralTevPlans(BrresModelReader.DecodeResult model)
+    {
+        var plans = new List<GeneralTevMaterialPlan>();
+        foreach (var materialId in model.SurfaceMaterials.Values
+                     .Select(material => material.MaterialIndex).Distinct().OrderBy(id => id))
+        {
+            if (!model.TevShaders.TryGetValue(materialId, out var shader))
+            {
+                plans.Add(new GeneralTevMaterialPlan(materialId, 0, [], "missing MDL0 TEV shader"));
+                continue;
+            }
+
+            model.TevLayers.TryGetValue(materialId, out var layers);
+            model.TexCoordGenerators.TryGetValue(materialId, out var generators);
+            var stages = new List<GeneralTevStagePlan>(shader.Stages.Count);
+            foreach (var stage in shader.Stages)
+            {
+                string? textureName = null;
+                bool textureAvailable = false;
+                bool texgenAvailable = false;
+                bool projected = false;
+                if (stage.TextureEnabled)
+                {
+                    if (layers is not null && stage.TextureMap >= 0 && stage.TextureMap < layers.Count)
+                    {
+                        textureName = layers[stage.TextureMap].TextureName;
+                        textureAvailable = model.TexturePixels.ContainsKey(textureName);
+                    }
+                    if (generators is not null)
+                    {
+                        var generator = generators.ForTexCoord(stage.TexCoord);
+                        texgenAvailable = generator is not null;
+                        projected = generator is not null && generator.Projection != 0;
+                    }
+                }
+                stages.Add(new GeneralTevStagePlan(stage, textureName, textureAvailable,
+                    texgenAvailable, projected, stage.IndirectCommand != 0));
+            }
+
+            string? issue = shader.Problem;
+            if (issue is null && (shader.DeclaredStages != stages.Count || stages.Count is < 1 or > 16))
+                issue = $"declared {shader.DeclaredStages} stages, parsed {stages.Count} (GX range 1..16)";
+            if (issue is null && stages.Select(stage => stage.Equation.Index).Distinct().Count() != stages.Count)
+                issue = "duplicate TEV stage indices";
+            plans.Add(new GeneralTevMaterialPlan(materialId, shader.DeclaredStages, stages.ToArray(), issue));
+        }
+        _generalTevPlans = plans.ToArray();
+        int colorCompare = plans.Sum(p => p.Stages.Count(s => s.Equation.ColorBias == 3));
+        int alphaCompare = plans.Sum(p => p.Stages.Count(s => s.Equation.AlphaBias == 3));
+        var compareMaterials = plans.Where(p => p.Stages.Any(s =>
+            s.Equation.ColorBias == 3 || s.Equation.AlphaBias == 3))
+            .Select(p => p.MaterialIndex).ToArray();
+        int swapStages = plans.Sum(p => p.Stages.Count(s =>
+            s.Equation.RasterSwap != 0 || s.Equation.TextureSwap != 0));
+        WriteDiagnostic($"Step 6f Pass 4 GX compare inventory: " +
+            $"colorCompareStages={colorCompare}, alphaCompareStages={alphaCompare}, " +
+            $"compareMaterials=[{string.Join(",", compareMaterials)}], " +
+            $"nonzeroSwapSelectors={swapStages}. " +
+            "F8=20 enables compare-mode equations only; F8=19 retains previous shader behavior. " +
+            "Swap table decoding, per-stage texture routing >2, and GX fixed-point precision are pending.");
+
+        int completeSwapTables = plans.Sum(p => model.TevShaders.TryGetValue(p.MaterialIndex, out var sh)
+            && sh.Swaps is not null ? sh.Swaps.Complete.Count(v => v) : 0);
+        int missingSelectedTables = plans.Sum(p => p.Stages.Count(stage =>
+        {
+            if (!model.TevShaders.TryGetValue(p.MaterialIndex, out var sh) || sh.Swaps is null)
+                return true;
+            return !sh.Swaps.IsComplete(stage.Equation.RasterSwap) ||
+                   !sh.Swaps.IsComplete(stage.Equation.TextureSwap);
+        }));
+        WriteDiagnostic($"Step 6f Pass 5a GX swap tables: " +
+            $"decodedCompleteTables={completeSwapTables}, missingSelectedStageTables={missingSelectedTables}, " +
+            $"nonzeroStageSelectors={swapStages}; mode21=compare+swap A/B, " +
+            "mode19 and mode20 unchanged. Incomplete tables use explicit identity fallback.");
+
+        // Pass 5b: initial BP values are not complete for every register/channel.
+        // This inventory is model-wide and does not invent GPU state for missing writes.
+        var usedMaterials = plans.Select(p => p.MaterialIndex).ToArray();
+        int initialChannelsKnown = 0, initialChannelsUnknown = 0, materialsWithMissing = 0;
+        foreach (int materialId in usedMaterials)
+        {
+            var initial = model.TevInitialRegisters.TryGetValue(materialId, out var existing)
+                ? existing : null;
+            int known = initial?.Known.Count(v => v) ?? 0;
+            initialChannelsKnown += known;
+            initialChannelsUnknown += 16 - known;
+            if (known < 16) materialsWithMissing++;
+        }
+        int registerWriteStages = plans.Sum(p => p.Stages.Count(s =>
+            s.Equation.ColorDestination is >= 0 and <= 3 &&
+            s.Equation.AlphaDestination is >= 0 and <= 3));
+        WriteDiagnostic($"Step 6f Pass 5b TEV precision inventory: " +
+            $"knownInitialChannels={initialChannelsKnown}, " +
+            $"unknownInitialChannels={initialChannelsUnknown}, " +
+            $"materialsWithMissingInitial={materialsWithMissing}, " +
+            $"stagesWithValidRegisterDestinations={registerWriteStages}; " +
+            "mode22=compare+swaps+signed11 register quantization; " +
+            "mode19 remains reference. Missing BP register channels use explicit ZERO fallback; " +
+            "GX rounding is experimental, not cycle-exact.");
+
+        // Pass 5c: pure CPU dataflow analysis. This does not change TEV uploads,
+        // GPU batches, shader programs, or the F8/F9 render-mode selection.
+        var registerDependencies = plans.Select(p =>
+        {
+            model.TevInitialRegisters.TryGetValue(p.MaterialIndex, out var initial);
+            return BrresTevRegisterDependencies.Analyze(p.MaterialIndex,
+                p.Stages.Select(st => st.Equation).ToArray(), initial);
+        }).ToArray();
+        int potentiallyReadUnknown = registerDependencies.Sum(r => r.UnknownReadBeforeWrite.Count);
+        int outputRelevantUnknown = registerDependencies.Sum(r => r.UnknownRelevantToOutput.Count);
+        int redundantUnknown = registerDependencies.Sum(r =>
+            r.UnknownReadBeforeWrite.Except(r.UnknownRelevantToOutput).Count());
+        int materialsWithOutputUnknown = registerDependencies.Count(r => r.UnknownRelevantToOutput.Count != 0);
+        int materialCountWithRead = registerDependencies.Count(r => r.UnknownReadBeforeWrite.Count != 0);
+        int totalUninitializedReads = registerDependencies.Sum(r => r.UnknownReadEvents);
+        WriteDiagnostic($"Step 6f Pass 5c TEV register dependencies: " +
+            $"materials={registerDependencies.Length}, " +
+            $"unknownInitialChannels={initialChannelsUnknown}, " +
+            $"readBeforeWriteUnknownChannels={potentiallyReadUnknown}, " +
+            $"outputRelevantUnknownChannels={outputRelevantUnknown}, " +
+            $"unknownReadButNotOutputRelevant={redundantUnknown}, " +
+            $"unknownReadEvents={totalUninitializedReads}, " +
+            $"materialsWithUnknownReads={materialCountWithRead}, " +
+            $"materialsWithOutputRelevantUnknown={materialsWithOutputUnknown}; " +
+            "conservative selector dependencies; output=final PREV RGBA; " +
+            "diagnostic only; no shader changes.");
+        foreach (var dependency in registerDependencies)
+        {
+            WriteDiagnostic($"Step 6f Pass 5c material={dependency.MaterialIndex}: " +
+                $"unknownReadBeforeWrite=[{string.Join(",", dependency.UnknownReadBeforeWrite)}], " +
+                $"outputRelevantUnknown=[{string.Join(",", dependency.UnknownRelevantToOutput)}], " +
+                $"unknownReadEvents={dependency.UnknownReadEvents}, " +
+                $"deadStageWrites={dependency.DeadStageWrites}; " +
+                $"stageFlow=[{string.Join(" ", dependency.StageFlow)}]");
+        }
+
+        int single = plans.Count(p => p.Stages.Length == 1);
+        int dual = plans.Count(p => p.Stages.Length == 2);
+        int multi = plans.Count(p => p.Stages.Length > 2);
+        int textured = plans.Sum(p => p.TexturedStageCount);
+        int untextured = plans.Sum(p => p.TextureDisabledStageCount);
+        int missingTextures = plans.Sum(p => p.Stages.Count(stage =>
+            stage.Equation.TextureEnabled && !stage.TextureAvailable));
+        int missingTexgens = plans.Sum(p => p.Stages.Count(stage =>
+            stage.Equation.TextureEnabled && !stage.TexgenAvailable));
+        WriteDiagnostic($"Step 6f Pass 1 generalized TEV plans: materials={plans.Count}, " +
+            $"stages={plans.Sum(p => p.Stages.Length)}, single={single}, two={dual}, >2={multi}, " +
+            $"textureEnabled={textured}, textureDisabled={untextured}, " +
+            $"indirectMaterials={plans.Count(p => p.RequiresIndirect)}, " +
+            $"projectedMaterials={plans.Count(p => p.RequiresProjection)}, " +
+            $"missingTextures={missingTextures}, missingTexgens={missingTexgens}, " +
+            $"shaderIssues={plans.Count(p => p.Issue is not null)}. " +
+            "Planning ONLY; existing two-stage GPU renderer and F7-F12 unchanged.");
+
+        // A compact per-material stage inventory makes variable-stage cases
+        // visible without inventing support in the current GLSL program.
+        foreach (var plan in plans)
+        {
+            string sequence = string.Join(" ", plan.Stages.Select(stage =>
+                $"s{stage.Equation.Index}:" +
+                (stage.Equation.TextureEnabled
+                    ? $"tex{stage.Equation.TextureMap}/coord{stage.Equation.TexCoord}" +
+                      (stage.TextureAvailable ? "" : "!texture") +
+                      (stage.TexgenAvailable ? "" : "!texgen")
+                    : "noTexture") +
+                $"/rgbR{stage.Equation.ColorDestination}/alphaR{stage.Equation.AlphaDestination}" +
+                (stage.UsesIndirect ? "/ind" : "") +
+                (stage.UsesProjectedTexgen ? "/projected" : "")));
+            WriteDiagnostic($"Step 6f Pass 1 material={plan.MaterialIndex}: " +
+                $"declared={plan.DeclaredStageCount} stages=[{sequence}]" +
+                (plan.Issue is null ? "" : $" issue={plan.Issue}"));
+        }
+    }
+
+    // Step 6f Pass 5d: per-model, CPU-only cross-track inventory. This runs once
+    // when a new model is uploaded, never during the per-frame draw loop.
+    // The report's fingerprint is a *resource signature*, not a verified course name.
+    private static int _tevReportSequence;
+
+    private void ExportCrossTrackTevReport(BrresModelReader.DecodeResult model)
+    {
+        try
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "DebugManager-TEV-Reports");
+            Directory.CreateDirectory(directory);
+            var plans = _generalTevPlans;
+            var stageSignature = string.Join("|", plans.Select(p =>
+                $"{p.MaterialIndex}:{p.DeclaredStageCount}:" +
+                string.Join(";", p.Stages.Select(st =>
+                    $"{st.Equation.Index}/{st.Equation.TextureMap}/{st.Equation.TexCoord}/" +
+                    $"{st.Equation.ColorBias}/{st.Equation.AlphaBias}/" +
+                    $"{st.Equation.RasterSwap}/{st.Equation.TextureSwap}/{st.TextureName}"))));
+            byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(stageSignature));
+            string signature = Convert.ToHexString(digest.AsSpan(0, 6));
+            string runId = $"{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}_{++_tevReportSequence:D3}_{signature}";
+
+            var gpuByMaterial = _gpuTevMaterials
+                .GroupBy(item => item.Batch.MaterialIndex)
+                .ToDictionary(group => group.Key, group => group.ToArray());
+            var materialRows = plans.Select(plan =>
+            {
+                model.TevInitialRegisters.TryGetValue(plan.MaterialIndex, out var initial);
+                model.TevShaders.TryGetValue(plan.MaterialIndex, out var shader);
+                var dependency = BrresTevRegisterDependencies.Analyze(plan.MaterialIndex,
+                    plan.Stages.Select(st => st.Equation).ToArray(), initial);
+                var gpu = gpuByMaterial.GetValueOrDefault(plan.MaterialIndex) ?? [];
+                var referenceGpu = gpu.Where(g => g.ShaderMode != CompleteTevStagesMode).ToArray();
+                var objectIds = model.SurfaceMaterials
+                    .Where(kv => kv.Value.MaterialIndex == plan.MaterialIndex)
+                    .Select(kv => kv.Key).OrderBy(i => i).ToArray();
+                var surfaces = model.PolygonSurfaces
+                    .Count(surface => objectIds.Contains(surface.ObjectIndex));
+                bool hasCompare = plan.Stages.Any(st =>
+                    st.Equation.ColorBias == 3 || st.Equation.AlphaBias == 3);
+                bool hasNonzeroSwap = plan.Stages.Any(st =>
+                    st.Equation.RasterSwap != 0 || st.Equation.TextureSwap != 0);
+                int missingSwaps = plan.Stages.Count(st => shader?.Swaps is null ||
+                    !shader.Swaps.IsComplete(st.Equation.RasterSwap) ||
+                    !shader.Swaps.IsComplete(st.Equation.TextureSwap));
+                return new
+                {
+                    materialIndex = plan.MaterialIndex,
+                    objectIndices = objectIds,
+                    polygonSurfaces = surfaces,
+                    declaredStages = plan.DeclaredStageCount,
+                    parsedStages = plan.Stages.Length,
+                    textureEnabledStages = plan.TexturedStageCount,
+                    textureDisabledStages = plan.TextureDisabledStageCount,
+                    hasComparison = hasCompare,
+                    nonDefaultSwap = hasNonzeroSwap,
+                    missingSelectedSwapTables = missingSwaps,
+                    indirect = plan.RequiresIndirect,
+                    projected = plan.RequiresProjection,
+                    missingTextures = plan.Stages.Count(st => st.Equation.TextureEnabled && !st.TextureAvailable),
+                    missingTexgens = plan.Stages.Count(st => st.Equation.TextureEnabled && !st.TexgenAvailable),
+                    knownInitialChannels = initial?.Known.Count(v => v) ?? 0,
+                    unknownReadBeforeWrite = dependency.UnknownReadBeforeWrite,
+                    outputRelevantUnknown = dependency.UnknownRelevantToOutput,
+                    issue = plan.Issue,
+                    gpuBatches = referenceGpu.Length,
+                    experimentalCompleteStageBatches = gpu.Length - referenceGpu.Length,
+                    gpuPaths = gpu.Select(g => g.ShaderMode switch
+                    {
+                        RegularTevMode => "regular",
+                        IndirectTevMode => "indirect",
+                        ProjectedTevMode => "projected",
+                        SingleStageTevTestMode => "single",
+                        CompleteTevStagesMode => "full_stage_experimental",
+                        _ => "other"
+                    }).Distinct().OrderBy(v => v).ToArray(),
+                    approximatedRegularUv = gpu.Any(g => g.Batch.ApproximateRegularUv),
+                    frozenFifoProjection = gpu.Any(g => g.Batch.ProjectedStage1),
+                    // Report fallback *coverage*, not proof that every pixel uses baseline.
+                    baselineOnly = referenceGpu.Length == 0,
+                    // Unlike "gpuBatches", these fields distinguish full TEV
+                    // execution from a historical two-stage approximation.
+                    completeStageBatches = gpu.Count(g => g.Batch.CompleteStages?.Length == plan.Stages.Length),
+                    fullyExecutedStageSequence = gpu.Any(g =>
+                        g.Batch.CompleteStages?.Length == plan.Stages.Length ||
+                        (plan.Stages.Length <= 2 && plan.TextureDisabledStageCount == 0 &&
+                         g.Batch.StageCount == plan.Stages.Length)),
+                    potentiallyTruncatedByLegacyShader = plan.Stages.Length > 2 &&
+                        gpu.Any(g => g.Batch.CompleteStages is null),
+                    stages = plan.Stages.Select(st => new
+                    {
+                        index = st.Equation.Index,
+                        texMap = st.Equation.TextureMap,
+                        texCoord = st.Equation.TexCoord,
+                        textureEnabled = st.Equation.TextureEnabled,
+                        textureName = st.TextureName,
+                        textureAvailable = st.TextureAvailable,
+                        texgenAvailable = st.TexgenAvailable,
+                        projected = st.UsesProjectedTexgen,
+                        indirect = st.UsesIndirect,
+                        colorCompare = st.Equation.ColorBias == 3,
+                        alphaCompare = st.Equation.AlphaBias == 3,
+                        rasterSwap = st.Equation.RasterSwap,
+                        textureSwap = st.Equation.TextureSwap,
+                        colorDestination = st.Equation.ColorDestination,
+                        alphaDestination = st.Equation.AlphaDestination
+                    }).ToArray()
+                };
+            }).ToArray();
+
+            int ready = materialRows.Count(m => !m.baselineOnly);
+            int totalBatches = materialRows.Sum(m => m.gpuBatches);
+            int surfaces = model.PolygonSurfaces.Count;
+            int advancedSurfaceEstimate = materialRows.Sum(m => m.baselineOnly ? 0 : m.polygonSurfaces);
+            var summary = new
+            {
+                schema = "DebugManager.TevCrossTrack.v1",
+                generatedUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                modelSignature = signature,
+                modelLabel = "unknown (rename report after identifying course)",
+                polygonSurfaces = surfaces,
+                materials = plans.Length,
+                declaredStages = plans.Sum(p => p.DeclaredStageCount),
+                parsedStages = plans.Sum(p => p.Stages.Length),
+                singleStageMaterials = plans.Count(p => p.Stages.Length == 1),
+                twoStageMaterials = plans.Count(p => p.Stages.Length == 2),
+                multiStageMaterials = plans.Count(p => p.Stages.Length > 2),
+                textureDisabledStages = plans.Sum(p => p.TextureDisabledStageCount),
+                comparisonMaterials = materialRows.Count(m => m.hasComparison),
+                nonDefaultSwapMaterials = materialRows.Count(m => m.nonDefaultSwap),
+                missingSelectedSwapTables = materialRows.Sum(m => m.missingSelectedSwapTables),
+                indirectMaterials = materialRows.Count(m => m.indirect),
+                projectedMaterials = materialRows.Count(m => m.projected),
+                missingTextures = materialRows.Sum(m => m.missingTextures),
+                missingTexgens = materialRows.Sum(m => m.missingTexgens),
+                planIssues = materialRows.Count(m => m.issue is not null),
+                unknownInitialChannels = materialRows.Sum(m => 16 - m.knownInitialChannels),
+                unknownReadBeforeWrite = materialRows.Sum(m => m.unknownReadBeforeWrite.Count),
+                outputRelevantUnknown = materialRows.Sum(m => m.outputRelevantUnknown.Count),
+                gpuSupportedMaterials = ready,
+                experimentalCompleteStageMaterials = materialRows.Count(m => m.experimentalCompleteStageBatches > 0),
+                fullyExecutedStageMaterials = materialRows.Count(m => m.fullyExecutedStageSequence),
+                potentiallyTruncatedLegacyMaterials = materialRows.Count(m => m.potentiallyTruncatedByLegacyShader),
+                gpuBatchCount = totalBatches,
+                baselineOnlyMaterials = materialRows.Count(m => m.baselineOnly),
+                // A surface may have baseline AND advanced overlays.
+                gpuCoveredSurfaceEstimate = advancedSurfaceEstimate,
+                approximatedRegularUvMaterials = materialRows.Count(m => m.approximatedRegularUv),
+                frozenFifoProjectionMaterials = materialRows.Count(m => m.frozenFifoProjection)
+            };
+            string jsonPath = Path.Combine(directory, runId + ".json");
+            string csvPath = Path.Combine(directory, runId + "_materials.csv");
+            string indexPath = Path.Combine(directory, "cross_track_summary.csv");
+            File.WriteAllText(jsonPath, JsonSerializer.Serialize(new
+            {
+                summary,
+                materials = materialRows,
+                limitations = new[]
+                {
+                    "Feature presence does not imply GPU feature accuracy",
+                    "GPU coverage counts uploaded batches; baseline is also drawn",
+                    "Projection can use frozen Mario Circuit FIFO frame data",
+                    "Indirect TEV may still use approximated regular UVs",
+                    "Missing BP channels are not reconstructed from runtime state",
+                    "Mode 19 is unchanged and may omit stages on legacy 3+ stage batches",
+                    "Mode 23 full-stage path is experimental and accepts at most three distinct texture map/coord pairs",
+                    "Model signature is not a verified track name"
+                }
+            }, new JsonSerializerOptions { WriteIndented = true }));
+
+            static string EscapeCsv(object? value)
+            {
+                string text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? "";
+                return "\"" + text.Replace("\"", "\"\"") + "\"";
+            }
+            string[] columns = ["modelSignature", "materialIndex", "objectIndices", "surfaces",
+                "stages", "gpuBatches", "gpuPaths", "baselineOnly", "indirect", "projected",
+                "comparison", "nonDefaultSwap", "missingSwaps", "missingTextures", "missingTexgens",
+                "unknownInitial", "unknownReadBeforeWrite", "outputRelevantUnknown",
+                "approximateUv", "frozenProjection", "planIssue"];
+            var csvLines = new List<string> { string.Join(",", columns) };
+            foreach (var m in materialRows)
+            {
+                object?[] fields = [signature, m.materialIndex, string.Join(";", m.objectIndices),
+                    m.polygonSurfaces, m.parsedStages, m.gpuBatches, string.Join(";", m.gpuPaths),
+                    m.baselineOnly, m.indirect, m.projected, m.hasComparison, m.nonDefaultSwap,
+                    m.missingSelectedSwapTables, m.missingTextures, m.missingTexgens,
+                    16 - m.knownInitialChannels, string.Join(";", m.unknownReadBeforeWrite),
+                    string.Join(";", m.outputRelevantUnknown), m.approximatedRegularUv,
+                    m.frozenFifoProjection, m.issue];
+                csvLines.Add(string.Join(",", fields.Select(EscapeCsv)));
+            }
+            File.WriteAllLines(csvPath, csvLines, Encoding.UTF8);
+            string[] summaryHeader = ["runId", "utc", "modelSignature", "materials", "stages", "single",
+                "two", "multi", "indirect", "projected", "compare", "swap", "missingSwapTables",
+                "unknownRead", "outputRelevantUnknown", "gpuMaterials", "gpuBatches", "baselineOnly", "jsonFile"];
+            if (!File.Exists(indexPath) || new FileInfo(indexPath).Length == 0)
+                File.WriteAllText(indexPath, string.Join(",", summaryHeader) + Environment.NewLine);
+            object?[] values = [runId, summary.generatedUtc, signature, summary.materials,
+                summary.parsedStages, summary.singleStageMaterials, summary.twoStageMaterials,
+                summary.multiStageMaterials, summary.indirectMaterials, summary.projectedMaterials,
+                summary.comparisonMaterials, summary.nonDefaultSwapMaterials,
+                summary.missingSelectedSwapTables, summary.unknownReadBeforeWrite,
+                summary.outputRelevantUnknown, summary.gpuSupportedMaterials, summary.gpuBatchCount,
+                summary.baselineOnlyMaterials, Path.GetFileName(jsonPath)];
+            File.AppendAllText(indexPath, string.Join(",", values.Select(EscapeCsv)) + Environment.NewLine);
+            WriteDiagnostic($"Step 6f Pass 5d cross-track GX/TEV report: " +
+                $"signature={signature}, materials={summary.materials}, stages={summary.parsedStages}, " +
+                $"single={summary.singleStageMaterials}, two={summary.twoStageMaterials}, " +
+                $"multi={summary.multiStageMaterials}, compare={summary.comparisonMaterials}, " +
+                $"swap={summary.nonDefaultSwapMaterials}, indirect={summary.indirectMaterials}, " +
+                $"projected={summary.projectedMaterials}, GPU={summary.gpuSupportedMaterials}/{summary.materials} " +
+                $"batches={totalBatches}, baselineOnly={summary.baselineOnlyMaterials}, " +
+                $"relevantUnknown={summary.outputRelevantUnknown}; " +
+                $"JSON={jsonPath}; CSV={csvPath}; INDEX={indexPath}. " +
+                "Diagnostic only; existing GL modes unchanged.");
+        }
+        catch (Exception ex)
+        {
+            // Reporting must never interrupt track rendering.
+            WriteDiagnostic($"Step 6f Pass 5d export FAILED: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
     // Step 6e Phase 3: one model-scoped owner for all advanced TEV GPU batches.
     // Upload functions remain specialized; their output is immediately registered
     // here. This registry owns each VAO/VBO exactly once through ReleaseModel().
@@ -95,7 +538,10 @@ internal sealed class BrresOpenGlRenderer
         Indirect = 2,
         ProjectedStage1 = 4,
         ApproximateRegularUv = 8,
-        FrozenFifoProjection = 16
+        FrozenFifoProjection = 16,
+        SingleStageTev = 32,
+        CompleteTevStages = 64,
+        MultiStageTev = 128
     }
 
     private sealed record MaterialDrawItem(TevInputBatch Batch, int ShaderMode,
@@ -113,11 +559,14 @@ internal sealed class BrresOpenGlRenderer
             RegularTevMode => TevMaterialFeatures.None,
             IndirectTevMode => TevMaterialFeatures.Indirect,
             ProjectedTevMode => TevMaterialFeatures.ProjectedStage1,
+            SingleStageTevTestMode => TevMaterialFeatures.SingleStageTev,
+            CompleteTevStagesMode => TevMaterialFeatures.CompleteTevStages,
             _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown TEV path")
         };
         if (_gpuTevMaterials.Any(item => item.Batch.Vao == batch.Vao))
             throw new InvalidOperationException($"TEV VAO {batch.Vao} registered twice");
-        var features = TevMaterialFeatures.TwoStageTev | path |
+        var features = (batch.StageCount == 1 ? TevMaterialFeatures.SingleStageTev :
+            batch.StageCount == 2 ? TevMaterialFeatures.TwoStageTev : TevMaterialFeatures.MultiStageTev) | path |
             (batch.ApproximateRegularUv ? TevMaterialFeatures.ApproximateRegularUv : TevMaterialFeatures.None) |
             (batch.ProjectedStage1 ? TevMaterialFeatures.ProjectedStage1 | TevMaterialFeatures.FrozenFifoProjection
                                    : TevMaterialFeatures.None);
@@ -138,6 +587,53 @@ internal sealed class BrresOpenGlRenderer
     // 3: omit material 7, leaving its baseline pixels visible.
     // No material-7 assumption is made for other tracks: the diagnostic is only
     // meaningful if this model actually has an eligible regular material 7.
+    // Step 6e material-7 input isolation. No source GX state is changed:
+    // these are deliberate A/B overrides only for this diagnostic.
+    // 0 original, 1 REG0.rgb=white, 2 raster=white, 3 both white.
+    // Step 6e: independent UV/texture-filter diagnosis for material 7 only.
+    // 0 original XF UV + linear, 1 original model UV sources, 2 swap resolved
+    // stage UVs, 3 original XF UV + nearest.  No setting is a permanent fix.
+    private int _material7UvSamplingTest = 0;
+    public string CycleMaterial7UvSamplingTest()
+    {
+        _material7UvSamplingTest = (_material7UvSamplingTest + 1) % 4;
+        _material7WindowTest = 0;
+        _material7InputTest = 0;
+        _suppressedRegularTevMaterial = -1;
+        TevInputPreviewMode = ConsolidatedTevMode;
+        string label = _material7UvSamplingTest switch
+        {
+            1 => "raw BRRES source UVs for both stages (no GX texgen transforms)",
+            2 => "swap the two resolved stage UV sets",
+            3 => "original resolved stage UVs with NEAREST texture sampling",
+            _ => "original resolved stage UVs with LINEAR texture sampling"
+        };
+        string message = $"Step 6e material7 UV/filter A/B: F7={_material7UvSamplingTest}, {label}; " +
+            "material7 only; mode13 active; F10/F11/F12 resets; other GPU batches unchanged.";
+        WriteDiagnostic(message);
+        return message;
+    }
+
+    private int _material7InputTest = 0;
+    public string CycleMaterial7InputTest()
+    {
+        _material7InputTest = (_material7InputTest + 1) % 4;
+        _material7WindowTest = 0;
+        _suppressedRegularTevMaterial = -1;
+        TevInputPreviewMode = ConsolidatedTevMode;
+        string label = _material7InputTest switch
+        {
+            1 => "REG0.rgb forced WHITE (alpha unchanged)",
+            2 => "raster channel0 forced WHITE",
+            3 => "REG0.rgb and raster channel0 forced WHITE",
+            _ => "original decoded REG0 + raster inputs"
+        };
+        string message = $"Step 6e material7 input A/B: F12={_material7InputTest}, {label}; " +
+            "material7 only; all other advanced batches unchanged; F11 stage test reset; mode13.";
+        WriteDiagnostic(message);
+        return message;
+    }
+
     private int _material7WindowTest = 0;
     public string CycleMaterial7WindowTest()
     {
@@ -185,12 +681,15 @@ internal sealed class BrresOpenGlRenderer
             return new MaterialDrawPass(mode, items, items.Select(item => item.Batch).ToArray());
         }
 
-        // The original regular -> indirect -> projected pass order is retained.
+        // Preserve the exact mode-19 sequence validated in Pass 2:
+        // regular -> indirect -> projected -> single-stage. Mode 13 excludes the last pass.
         _materialDrawPipeline =
         [
             MakePass(RegularTevMode),
             MakePass(IndirectTevMode),
-            MakePass(ProjectedTevMode)
+            MakePass(ProjectedTevMode),
+            MakePass(SingleStageTevTestMode), // Mode 19 final pass.
+            MakePass(CompleteTevStagesMode) // Mode 23 ONLY; full-stage override pass.
         ];
         // Do not carry an exclusion over to a newly uploaded track.
         _suppressedRegularTevMaterial = -1;
@@ -276,22 +775,33 @@ internal sealed class BrresOpenGlRenderer
     private int _tevInputProgram;
     private int _tevInputMatrix;
     private int _tevInputMode;
+    private int _tevStageCountLocation;
+    private int _tevCompleteStageSequenceLocation;
+    private readonly int[] _tevStageSamplerSlotLocations = new int[16];
+    private int _tevInputSampler2;
+    private int _tevExtendedCompareLocation;
+    private int _tevExtendedSwapLocation;
+    private int _tevExtendedPrecisionLocation;
+    private readonly int[] _tevSwapTableLocations = new int[5];
+    private readonly int[] _tevStageSwapLocations = new int[16];
     private int _tevInputSampler0;
     private int _tevInputSampler1;
     private int _tevProjectedStage1;
-    private readonly int[] _tevColorArgs = new int[2];
-    private readonly int[] _tevAlphaArgs = new int[2];
-    private readonly int[] _tevColorSettings = new int[2];
-    private readonly int[] _tevAlphaSettings = new int[2];
-    private readonly int[] _tevColorDest = new int[2];
-    private readonly int[] _tevAlphaDest = new int[2];
-    private readonly int[] _tevKonstColorFraction = new int[2];
-    private readonly int[] _tevKonstAlphaFraction = new int[2];
+    private readonly int[] _tevColorArgs = new int[16];
+    private readonly int[] _tevAlphaArgs = new int[16];
+    private readonly int[] _tevColorSettings = new int[16];
+    private readonly int[] _tevAlphaSettings = new int[16];
+    private readonly int[] _tevColorDest = new int[16];
+    private readonly int[] _tevAlphaDest = new int[16];
+    private readonly int[] _tevKonstColorFraction = new int[16];
+    private readonly int[] _tevKonstAlphaFraction = new int[16];
     private readonly int[] _tevKonstRegisters = new int[4];
     private readonly int[] _tevInitialRegisters = new int[4];
     private int _tevUseVertexRaster;
     private int _tevRasterMaterialColor;
     private int _tevRasterSourceFlags;
+    private int _tevMaterial7UvMode;
+
 
 
 
@@ -315,8 +825,12 @@ internal sealed class BrresOpenGlRenderer
                 UploadFifoProjectionBatches(_requested);
                 UploadGxTexgenOrderBatches(_requested);
                 UploadProjectedTevBatches(_requested);
+                BuildGeneralTevPlans(_requested);
+                UploadSingleStageTevBatches(_requested);
+                UploadCompleteStageTevBatches(_requested);
                 BuildMaterialDrawPipeline();
                 LogConsolidatedTevCoverage(_requested);
+                ExportCrossTrackTevReport(_requested);
             }
             _uploaded = _requested;
         }
@@ -408,6 +922,37 @@ internal sealed class BrresOpenGlRenderer
                 break;
             case ConsolidatedRegularHalfBlendMode:
                 DrawConsolidatedTevPreview(combined, regularBlend: RegularTevBlend.HalfOpacity);
+                break;
+            case SingleStageTevTestMode:
+                DrawTevInputPreview(combined, GetTevBatches(SingleStageTevTestMode), RegularTevMode);
+                break;
+            case SingleStageWithConsolidatedMode:
+                // Step 6f Pass 3: same draw order as the visually validated Pass 2 mode 19.
+                DrawConsolidatedTevPreview(combined, includeSingleStage: true);
+                break;
+            case ExtendedTevCompareMode:
+                // Pass 4 A/B: same four passes as mode 19, with compare operations.
+                DrawConsolidatedTevPreview(combined, includeSingleStage: true, extendedCompare: true);
+                break;
+            case ExtendedTevSwapMode:
+                // Pass 5a: same draw order, comparisons and GX swap tables where
+                // all KSEL source registers were actually decoded.
+                DrawConsolidatedTevPreview(combined, includeSingleStage: true,
+                    extendedCompare: true, extendedSwap: true);
+                break;
+            case CompleteTevStagesMode:
+                // Pass 5e: mode 19 plus newly validated full-stage materials.
+                // Pre-existing batches are suppressed only when replaced by a
+                // complete-sequence batch; other modes retain their original draws.
+                DrawConsolidatedTevPreview(combined, includeSingleStage: true,
+                    extendedCompare: true, extendedSwap: true,
+                    includeCompleteStages: true);
+                break;
+            case ExtendedTevPrecisionMode:
+                // Pass 5b: opt-in signed 11-bit register writeback quantization.
+                // Preserve the 24-batch draw order and all previous comparison modes.
+                DrawConsolidatedTevPreview(combined, includeSingleStage: true,
+                    extendedCompare: true, extendedSwap: true, extendedPrecision: true);
                 break;
         }
     }
@@ -554,7 +1099,7 @@ internal sealed class BrresOpenGlRenderer
                 GL.BindTexture(TextureTarget.Texture2D, texture);
                 GL.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
                 GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba8,
-                    width, height, 0, PixelFormat.Bgra, PixelType.UnsignedByte, bgra);
+                    width, height, 0, GlPixelFormat.Bgra, PixelType.UnsignedByte, bgra);
                 GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter,
                     (int)TextureMinFilter.Linear);
                 GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter,
@@ -753,7 +1298,33 @@ internal sealed class BrresOpenGlRenderer
 
             // Per-corner GX color0 is separate from the independently generated UVs.
             bool hasVertexRaster = surface.Colors0?.Count == surface.Corners.Count;
-            var vertices = new float[surface.Corners.Count * 11];
+            // Only material 7 gains extra diagnostic UV attributes; the standard
+            // 11-float vertex format remains byte-for-byte unchanged for all others.
+            bool material7UvProbe = mid == 7 &&
+                surface.Uvs?.Count == surface.Corners.Count &&
+                surface.Uvs1?.Count == surface.Corners.Count;
+            int tevStride = material7UvProbe ? 15 : 11;
+            var vertices = new float[surface.Corners.Count * tevStride];
+            var raw0 = sampled[0].TexCoord == 1 ? surface.Uvs1 : surface.Uvs;
+            var raw1 = sampled[1].TexCoord == 1 ? surface.Uvs1 : surface.Uvs;
+            // The diagnostic only supports raw UV0/UV1 sources; warn if the
+            // generator's actual source differs from the TEV coord index.
+            if (mid == 7)
+            {
+                var gen0 = generators.ForTexCoord(sampled[0].TexCoord);
+                var gen1 = generators.ForTexCoord(sampled[1].TexCoord);
+                raw0 = gen0?.InputUv == 1 ? surface.Uvs1 : gen0?.InputUv == 0 ? surface.Uvs : null;
+                raw1 = gen1?.InputUv == 1 ? surface.Uvs1 : gen1?.InputUv == 0 ? surface.Uvs : null;
+                material7UvProbe = raw0?.Count == surface.Corners.Count && raw1?.Count == surface.Corners.Count;
+                tevStride = material7UvProbe ? 15 : 11;
+                vertices = new float[surface.Corners.Count * tevStride];
+                WriteDiagnostic($"Step 6e material7 UV source mapping: " +
+                    $"stage0: coord={sampled[0].TexCoord} XFrow={gen0?.SourceRow} sourceUV={gen0?.InputUv}; " +
+                    $"stage1: coord={sampled[1].TexCoord} XFrow={gen1?.SourceRow} sourceUV={gen1?.InputUv}; " +
+                    $"rawSourceAvailable={material7UvProbe}, " +
+                    $"wrap0=({layer0.WrapU},{layer0.WrapV}) wrap1=({layer1.WrapU},{layer1.WrapV}); " +
+                    "default GL filter LINEAR; F7=raw/swap/nearest diagnosis.");
+            }
             bool finite = true;
             for (int i = 0, j = 0; i < surface.Corners.Count; i++)
             {
@@ -775,6 +1346,13 @@ internal sealed class BrresOpenGlRenderer
                 vertices[j++] = raster.G / 255f;
                 vertices[j++] = raster.B / 255f;
                 vertices[j++] = raster.A / 255f;
+                if (material7UvProbe)
+                {
+                    vertices[j++] = (float)raw0![i].X;
+                    vertices[j++] = (float)raw0[i].Y;
+                    vertices[j++] = (float)raw1![i].X;
+                    vertices[j++] = (float)raw1[i].Y;
+                }
             }
             if (!finite)
             {
@@ -789,20 +1367,62 @@ internal sealed class BrresOpenGlRenderer
             GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
             GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices,
                 BufferUsageHint.StaticDraw);
-            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 11 * sizeof(float), 0);
+            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, tevStride * sizeof(float), 0);
             GL.EnableVertexAttribArray(0);
-            GL.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 11 * sizeof(float), 3 * sizeof(float));
+            GL.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, tevStride * sizeof(float), 3 * sizeof(float));
             GL.EnableVertexAttribArray(1);
-            GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, 11 * sizeof(float), 5 * sizeof(float));
-            GL.VertexAttribPointer(3, 4, VertexAttribPointerType.Float, false, 11 * sizeof(float), 7 * sizeof(float));
+            GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, tevStride * sizeof(float), 5 * sizeof(float));
+            GL.VertexAttribPointer(3, 4, VertexAttribPointerType.Float, false, tevStride * sizeof(float), 7 * sizeof(float));
             GL.EnableVertexAttribArray(3);
             GL.EnableVertexAttribArray(2);
+            if (material7UvProbe)
+            {
+                GL.VertexAttribPointer(6, 2, VertexAttribPointerType.Float, false,
+                    tevStride * sizeof(float), 11 * sizeof(float));
+                GL.EnableVertexAttribArray(6);
+                GL.VertexAttribPointer(7, 2, VertexAttribPointerType.Float, false,
+                    tevStride * sizeof(float), 13 * sizeof(float));
+                GL.EnableVertexAttribArray(7);
+            }
             // GX color and alpha equations are evaluated only for configurations
             // whose two texture-enabled stages are the entire TEV program.
             // Other stage types and unsupported selectors retain F8 input previews.
             model.TevKonst.TryGetValue(mid, out var konst);
             model.TevInitialRegisters.TryGetValue(mid, out var initial);
             model.TevRasterChannels.TryGetValue(mid, out var rasterChannel);
+            if (mid == 7)
+            {
+                var ir = initial?.Rgba;
+                var mr = rasterChannel?.MaterialRgba;
+                static string RgbaAt(float[]? colors, int start) => colors is null || colors.Length < start + 4
+                    ? "missing" : $"({colors[start]:F6},{colors[start+1]:F6},{colors[start+2]:F6},{colors[start+3]:F6})";
+                static string UvRange(System.Collections.Generic.IReadOnlyList<System.Windows.Point> coords)
+                {
+                    if (coords.Count == 0) return "empty";
+                    return $"U=[{coords.Min(v => v.X):F5},{coords.Max(v => v.X):F5}]," +
+                           $"V=[{coords.Min(v => v.Y):F5},{coords.Max(v => v.Y):F5}]";
+                }
+                int comparisonCount = Math.Min(uv0.Count, uv1.Count);
+                double maxUvDelta = 0;
+                for (int j = 0; j < comparisonCount; j++)
+                    maxUvDelta = Math.Max(maxUvDelta,
+                        Math.Max(Math.Abs(uv0[j].X - uv1[j].X), Math.Abs(uv0[j].Y - uv1[j].Y)));
+                int vertexUnique = hasVertexRaster && surface.Colors0 is not null
+                    ? surface.Colors0.Distinct().Count() : 0;
+                WriteDiagnostic($"Step 6e material7 register/raster inputs: " +
+                    $"knownInitialChannels={initial?.KnownChannels ?? 0}/16, " +
+                    $"PREV={RgbaAt(ir,0)}, REG0={RgbaAt(ir,4)}, " +
+                    $"REG1={RgbaAt(ir,8)}, REG2={RgbaAt(ir,12)}; " +
+                    $"rasterUnlit={rasterChannel?.IsUnlit}, " +
+                    $"rasterColorFromVertex={rasterChannel?.ColorMaterialFromVertex}, " +
+                    $"rasterAlphaFromVertex={rasterChannel?.AlphaMaterialFromVertex}, " +
+                    $"materialColor={RgbaAt(mr,0)}, vertexColor0={hasVertexRaster}, " +
+                    $"uniqueVertexColors={vertexUnique}; " +
+                    $"stage0TexCoord={sampled[0].TexCoord} {UvRange(uv0)}, " +
+                    $"stage1TexCoord={sampled[1].TexCoord} {UvRange(uv1)}, " +
+                    $"maxStageUvDelta={maxUvDelta:F6}. " +
+                    "F12 toggles material7 REG0/raster input only; other materials untouched.");
+            }
             string equationReason = ValidateTwoStageEquations(shader, konst);
             bool equationSupported = equationReason.Length == 0;
             if (equationSupported) equationsSupported++;
@@ -822,8 +1442,9 @@ internal sealed class BrresOpenGlRenderer
         }
         GL.BindVertexArray(0);
         WriteDiagnostic($"Step 6d.1 GPU TEV inputs: {eligible} eligible; {skipped} skipped. " +
-            "Step 6e: initial mode 13 consolidated TEV; F8 cycles modes 0-13; " +
-            "F9 switches between baseline and consolidated. GX approximations remain experimental.");
+            "Step 6f Pass 3: initial mode 19 generalized TEV (24-batch candidate); " +
+            "F8 cycles modes 0-20; F9 switches baseline/mode19. " +
+            "F8=13 retains original 15-batch reference. GX approximations remain experimental.");
         // Read-only GX indirect diagnostics; Pass 1 never changes texture sampling.
         var indirectMaterials = model.TevIndirect.Values.Where(m => m.UsesIndirect).ToArray();
         WriteDiagnostic($"Step 6d.5 Pass 1 GX indirect: {indirectMaterials.Length} materials with active indirect TEV; " +
@@ -1043,6 +1664,281 @@ internal sealed class BrresOpenGlRenderer
         if (sel is >= 0x10 and <= 0x1F)
             return k.HasChannel(sel & 3, (sel - 0x10) / 4);
         return false;
+    }
+
+    // Step 6f Pass 2: isolated, model-scoped GPU uploads for the one-stage
+    // material plans. The existing two-stage, indirect and projected paths are
+    // not reclassified, rewritten or changed by this experiment.
+    private void UploadSingleStageTevBatches(BrresModelReader.DecodeResult model)
+    {
+        int ready = 0, rejected = 0;
+        var reasons = new Dictionary<string, int>(StringComparer.Ordinal);
+        double cx = (model.Minimum.X + model.Maximum.X) * 0.5;
+        double cy = (model.Minimum.Y + model.Maximum.Y) * 0.5;
+        double cz = (model.Minimum.Z + model.Maximum.Z) * 0.5;
+        foreach (var surface in model.PolygonSurfaces)
+        {
+            if (!model.SurfaceMaterials.TryGetValue(surface.ObjectIndex, out var material)) continue;
+            int mid = material.MaterialIndex;
+            var plan = _generalTevPlans.FirstOrDefault(p => p.MaterialIndex == mid);
+            if (plan is null || plan.Stages.Length != 1) continue;
+            string? issue = plan.Issue;
+            var step = plan.Stages[0];
+            var eq = step.Equation;
+            model.TevKonst.TryGetValue(mid, out var konst);
+            model.TevInitialRegisters.TryGetValue(mid, out var initial);
+            model.TevRasterChannels.TryGetValue(mid, out var rasterChannel);
+            model.TevLayers.TryGetValue(mid, out var layers);
+            model.TexCoordGenerators.TryGetValue(mid, out var generators);
+            if (issue is null && !eq.TextureEnabled) issue = "untextured stage (needs explicit GX default texture input)";
+            if (issue is null && (!step.TextureAvailable || !step.TexgenAvailable)) issue = "missing texture or texgen";
+            if (issue is null && step.UsesIndirect) issue = "indirect stage";
+            if (issue is null && step.UsesProjectedTexgen) issue = "projected stage";
+            if (issue is null && (eq.RasterSwap != 0 || eq.TextureSwap != 0)) issue = "swap tables unresolved";
+            if (issue is null && (eq.ColorBias == 3 || eq.AlphaBias == 3)) issue = "compare combiner unresolved";
+            if (issue is null && (eq.ColorDestination != 0 || eq.AlphaDestination != 0)) issue = "final result not PREV";
+            if (issue is null && (eq.ColorScale is < 0 or > 3 || eq.AlphaScale is < 0 or > 3)) issue = "invalid scale";
+            if (issue is null && new[] {eq.ColorA,eq.ColorB,eq.ColorC,eq.ColorD}.Any(x => x is < 0 or > 15)) issue = "invalid color selector";
+            if (issue is null && new[] {eq.AlphaA,eq.AlphaB,eq.AlphaC,eq.AlphaD}.Any(x => x is < 0 or > 7)) issue = "invalid alpha selector";
+            if (issue is null && new[] {eq.ColorA,eq.ColorB,eq.ColorC,eq.ColorD}.Contains(14) && !HasKonstColor(eq.KonstColor,konst)) issue = "unknown KONST color";
+            if (issue is null && new[] {eq.AlphaA,eq.AlphaB,eq.AlphaC,eq.AlphaD}.Contains(6) && !HasKonstAlpha(eq.KonstAlpha,konst)) issue = "unknown KONST alpha";
+            if (issue is null && (layers is null || generators is null || eq.TextureMap < 0 || eq.TextureMap >= layers.Count)) issue = "missing TEV layer";
+            System.Collections.Generic.IReadOnlyList<System.Windows.Point>? uv = null;
+            if (issue is null && (!BrresTexCoordGenerators.TryResolveStageUvs(surface, generators!, eq.TexCoord,
+                out uv, allowUnresolvedPostMatrix3ForPreview: true) || uv is null || uv.Count != surface.Corners.Count))
+                issue = "unresolved GX coordinates";
+            if (issue is null && surface.Corners.Count == 0) issue = "empty geometry";
+            if (issue is null && uv!.Any(v => !double.IsFinite(v.X) || !double.IsFinite(v.Y) ||
+                          Math.Abs(v.X) > 100000 || Math.Abs(v.Y) > 100000)) issue = "nonfinite UV";
+            if (issue is not null)
+            {
+                rejected++;
+                reasons[issue] = reasons.GetValueOrDefault(issue) + 1;
+                continue;
+            }
+            int stride = 11; // identical to the already validated TEV vertex layout
+            float[] vertices = new float[surface.Corners.Count * stride];
+            bool vertexRaster = surface.Colors0 is not null && surface.Colors0.Count == surface.Corners.Count;
+            for (int i = 0, j = 0; i < surface.Corners.Count; ++i)
+            {
+                var p = surface.Corners[i];
+                vertices[j++] = (float)((p.X - cx) * 0.001);
+                vertices[j++] = (float)((p.Y - cy) * 0.001);
+                vertices[j++] = (float)((p.Z - cz) * 0.001);
+                // Both samplers can address this single stage, but only stage 0
+                // executes when the uStageCount uniform equals one.
+                vertices[j++] = (float)uv![i].X;
+                vertices[j++] = (float)uv[i].Y;
+                vertices[j++] = (float)uv[i].X;
+                vertices[j++] = (float)uv[i].Y;
+                var color = vertexRaster ? surface.Colors0![i] : System.Windows.Media.Colors.White;
+                vertices[j++] = color.R / 255f;
+                vertices[j++] = color.G / 255f;
+                vertices[j++] = color.B / 255f;
+                vertices[j++] = color.A / 255f;
+            }
+            var layer = layers![eq.TextureMap];
+            int texture = GetTexture(model, layer.TextureName, layer.WrapU, layer.WrapV);
+            int vao = GL.GenVertexArray();
+            int vbo = GL.GenBuffer();
+            GL.BindVertexArray(vao);
+            GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
+            GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
+            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, stride * sizeof(float), 0);
+            GL.EnableVertexAttribArray(0);
+            GL.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, stride * sizeof(float), 3 * sizeof(float));
+            GL.EnableVertexAttribArray(1);
+            GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, stride * sizeof(float), 5 * sizeof(float));
+            GL.EnableVertexAttribArray(2);
+            GL.VertexAttribPointer(3, 4, VertexAttribPointerType.Float, false, stride * sizeof(float), 7 * sizeof(float));
+            GL.EnableVertexAttribArray(3);
+            RegisterTevMaterial(new TevInputBatch(vao, vbo, surface.Corners.Count,
+                texture, texture, mid, eq.Index, eq.Index, eq, eq, konst, initial,
+                rasterChannel, vertexRaster, true, StageCount: 1), SingleStageTevTestMode);
+            ready++;
+        }
+        GL.BindVertexArray(0);
+        WriteDiagnostic($"Step 6f Pass 2 single-stage GPU: ready={ready}, rejected={rejected}, " +
+            $"candidateMaterials={_generalTevPlans.Count(p => p.Stages.Length == 1)}, " +
+            $"rejections=[{string.Join(", ", reasons.Select(x => x.Key + ":" + x.Value))}]. " +
+            "F8=18 single-stage only; F8=19 generalized consolidated DEFAULT; " +
+            "F8=13 preserved 15-batch reference. Variable-length GLSL loop active (1 or 2 stages). " +
+            "3+ stage texture binding and TEV compare ops remain pending.");
+    }
+
+    // Step 6f Pass 5e: full TEV execution for texture-disabled stages and
+    // materials with three or more stages, provided all independent samples
+    // fit the THREE texture input/UV pairs supported by this preview. Unlike
+    // the legacy two-stage uploader, all TEV stages (even untextured ones)
+    // retain their original index, color/alpha equation and destination.
+    // This is opt-in mode 23 only; no mode 19 material is reclassified.
+    private void UploadCompleteStageTevBatches(BrresModelReader.DecodeResult model)
+    {
+        int accepted = 0, rejected = 0, disabledAccepted = 0, multiAccepted = 0;
+        var reasons = new Dictionary<string, int>(StringComparer.Ordinal);
+        var rejectedDetails = new List<string>();
+        double cx = (model.Minimum.X + model.Maximum.X) * 0.5;
+        double cy = (model.Minimum.Y + model.Maximum.Y) * 0.5;
+        double cz = (model.Minimum.Z + model.Maximum.Z) * 0.5;
+
+        void Reject(int materialId, int objectId, string reason)
+        {
+            rejected++;
+            reasons[reason] = reasons.GetValueOrDefault(reason) + 1;
+            if (rejectedDetails.Count < 24)
+                rejectedDetails.Add($"m{materialId}/obj{objectId}: {reason}");
+        }
+
+        foreach (var surface in model.PolygonSurfaces)
+        {
+            if (!model.SurfaceMaterials.TryGetValue(surface.ObjectIndex, out var material)) continue;
+            int mid = material.MaterialIndex;
+            var plan = _generalTevPlans.FirstOrDefault(p => p.MaterialIndex == mid);
+            if (plan is null || (plan.TextureDisabledStageCount == 0 && plan.Stages.Length <= 2))
+                continue;
+            var stages = plan.Stages.Select(st => st.Equation).ToArray();
+            string? issue = plan.Issue;
+            if (issue is null && stages.Length is < 1 or > 16) issue = "stage count outside GX range";
+            if (issue is null && stages.Where((s, i) => s.Index != i).Any())
+                issue = "stage indices are not consecutive";
+            if (issue is null && stages.Any(s => s.IndirectCommand != 0))
+                issue = "indirect TEV not reconstructed for complete-stage path";
+            if (issue is null && plan.RequiresProjection)
+                issue = "projected texgen unavailable for complete-stage path";
+            if (issue is null && (stages[^1].ColorDestination != 0 || stages[^1].AlphaDestination != 0))
+                issue = "final stage does not write PREV RGBA";
+            model.TevKonst.TryGetValue(mid, out var konst);
+            model.TevInitialRegisters.TryGetValue(mid, out var initial);
+            model.TevRasterChannels.TryGetValue(mid, out var rasterChannel);
+            model.TevLayers.TryGetValue(mid, out var layers);
+            model.TexCoordGenerators.TryGetValue(mid, out var generators);
+            if (issue is null && stages.Any(s =>
+                s.ColorDestination is < 0 or > 3 || s.AlphaDestination is < 0 or > 3 ||
+                s.ColorScale is < 0 or > 3 || s.AlphaScale is < 0 or > 3 ||
+                new[] { s.ColorA, s.ColorB, s.ColorC, s.ColorD }.Any(v => v is < 0 or > 15) ||
+                new[] { s.AlphaA, s.AlphaB, s.AlphaC, s.AlphaD }.Any(v => v is < 0 or > 7)))
+                issue = "unsupported TEV selectors or destinations";
+            if (issue is null && stages.Any(s =>
+                new[] { s.ColorA, s.ColorB, s.ColorC, s.ColorD }.Contains(14) &&
+                !HasKonstColor(s.KonstColor, konst) ||
+                new[] { s.AlphaA, s.AlphaB, s.AlphaC, s.AlphaD }.Contains(6) &&
+                !HasKonstAlpha(s.KonstAlpha, konst)))
+                issue = "unresolved KONST register input";
+            // Distinct texture map AND texgen pair is required: reusing only the
+            // map would incorrectly conflate two differently generated UV sets.
+            var slots = new List<(int map, int coord)>();
+            var sampledUvs = new List<System.Collections.Generic.IReadOnlyList<System.Windows.Point>>();
+            int[] stageSlots = new int[stages.Length];
+            if (issue is null && stages.Any(stage => stage.TextureEnabled) &&
+                (layers is null || generators is null))
+                issue = "missing material texture layers or texgens";
+            if (issue is null)
+            {
+                for (int k = 0; k < stages.Length; k++)
+                {
+                    var st = stages[k];
+                    if (!st.TextureEnabled) { stageSlots[k] = -1; continue; }
+                    if (st.TextureMap < 0 || st.TextureMap >= layers!.Count)
+                    { issue = "texture map outside material layer table"; break; }
+                    var layer = layers[st.TextureMap];
+                    if (!model.TexturePixels.ContainsKey(layer.TextureName))
+                    { issue = "missing decoded TEX0"; break; }
+                    if (layer.WrapU is < 0 or > 2 || layer.WrapV is < 0 or > 2)
+                    { issue = "unsupported texture wrapping"; break; }
+                    var key = (st.TextureMap, st.TexCoord);
+                    int slot = slots.IndexOf(key);
+                    if (slot < 0)
+                    {
+                        if (slots.Count >= 3)
+                        { issue = "more than three distinct texture/texgen pairs"; break; }
+                        if (!BrresTexCoordGenerators.TryResolveStageUvs(surface, generators!, st.TexCoord,
+                                out var uv, allowUnresolvedPostMatrix3ForPreview: true) ||
+                            uv is null || uv.Count != surface.Corners.Count)
+                        { issue = "unresolved GX texture coordinates"; break; }
+                        if (uv.Any(v => !double.IsFinite(v.X) || !double.IsFinite(v.Y) ||
+                                      Math.Abs(v.X) > 100000 || Math.Abs(v.Y) > 100000))
+                        { issue = "nonfinite or excessive UV"; break; }
+                        slot = slots.Count;
+                        slots.Add(key);
+                        sampledUvs.Add(uv);
+                    }
+                    stageSlots[k] = slot;
+                }
+            }
+            if (issue is null && surface.Corners.Count == 0) issue = "no geometry";
+            if (issue is not null) { Reject(mid, surface.ObjectIndex, issue); continue; }
+
+            // 3 position, three pairs of UVs, RGBA raster. Third UV pair uses
+            // vertex attribute location 8; older VAO formats stay unchanged.
+            const int stride = 13;
+            var vertices = new float[surface.Corners.Count * stride];
+            bool vertexRaster = surface.Colors0?.Count == surface.Corners.Count;
+            for (int i = 0, j = 0; i < surface.Corners.Count; i++)
+            {
+                var p = surface.Corners[i];
+                vertices[j++] = (float)((p.X - cx) * 0.001);
+                vertices[j++] = (float)((p.Y - cy) * 0.001);
+                vertices[j++] = (float)((p.Z - cz) * 0.001);
+                for (int slot = 0; slot < 3; slot++)
+                {
+                    var uv = slot < sampledUvs.Count ? sampledUvs[slot][i] : new System.Windows.Point(0, 0);
+                    vertices[j++] = (float)uv.X;
+                    vertices[j++] = (float)uv.Y;
+                }
+                var color = vertexRaster ? surface.Colors0![i] : System.Windows.Media.Colors.White;
+                vertices[j++] = color.R / 255f;
+                vertices[j++] = color.G / 255f;
+                vertices[j++] = color.B / 255f;
+                vertices[j++] = color.A / 255f;
+            }
+            int[] texIds = [_whiteTexture, _whiteTexture, _whiteTexture];
+            for (int i = 0; i < slots.Count; i++)
+            {
+                var layer = layers![slots[i].map];
+                texIds[i] = GetTexture(model, layer.TextureName, layer.WrapU, layer.WrapV);
+            }
+            int vao = GL.GenVertexArray();
+            int vbo = GL.GenBuffer();
+            GL.BindVertexArray(vao);
+            GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
+            GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
+            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, stride * sizeof(float), 0);
+            GL.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, stride * sizeof(float), 3 * sizeof(float));
+            GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, stride * sizeof(float), 5 * sizeof(float));
+            GL.VertexAttribPointer(3, 4, VertexAttribPointerType.Float, false, stride * sizeof(float), 9 * sizeof(float));
+            GL.VertexAttribPointer(8, 2, VertexAttribPointerType.Float, false, stride * sizeof(float), 7 * sizeof(float));
+            foreach (int index in new[] { 0, 1, 2, 3, 8 }) GL.EnableVertexAttribArray(index);
+            GL.BindVertexArray(0);
+            RegisterTevMaterial(new TevInputBatch(vao, vbo, surface.Corners.Count,
+                texIds[0], texIds[1], mid, stages[0].Index,
+                stages.Length > 1 ? stages[1].Index : stages[0].Index,
+                stages[0], stages.Length > 1 ? stages[1] : stages[0],
+                konst, initial, rasterChannel, vertexRaster, true,
+                StageCount: stages.Length, Texture2: texIds[2],
+                CompleteStages: stages, StageSamplerSlots: stageSlots), CompleteTevStagesMode);
+            accepted++;
+            if (plan.TextureDisabledStageCount > 0) disabledAccepted++;
+            if (stages.Length > 2) multiAccepted++;
+        }
+        GL.BindVertexArray(0);
+        WriteDiagnostic($"Step 6f Pass 5e full-stage GPU: ready={accepted}, " +
+            $"withTextureDisabled={disabledAccepted}, multiStage={multiAccepted}, rejected={rejected}, " +
+            $"rejections=[{string.Join(",", reasons.OrderBy(p => p.Key).Select(p => $"{p.Key}:{p.Value}"))}]; " +
+            "F8=23 experimental full-stage overlay, F8=19 unchanged. " +
+            "Up to 3 texture/texgen pairs, full ordered TEV equations; indirect/projected excluded.");
+        WriteDiagnostic("Step 6f Pass 5e accepted material IDs: [" +
+            string.Join(",", GetUploadedTevBatches(CompleteTevStagesMode)
+                .Select(batch => batch.MaterialIndex).Distinct().OrderBy(id => id)) + "]");
+        foreach (string detail in rejectedDetails)
+            WriteDiagnostic("Step 6f Pass 5e reject " + detail);
+        var legacyTruncated = _gpuTevMaterials
+            .Where(item => item.ShaderMode != CompleteTevStagesMode &&
+                _generalTevPlans.Any(p => p.MaterialIndex == item.Batch.MaterialIndex &&
+                    p.Stages.Length > item.Batch.StageCount))
+            .Select(item => item.Batch.MaterialIndex).Distinct().OrderBy(id => id).ToArray();
+        WriteDiagnostic("Step 6f Pass 5e legacy potentially truncated material IDs: [" +
+            string.Join(",", legacyTruncated) + "]; F8=19 retains these older paths, " +
+            "F8=23 replaces them only when all surfaces of that material have full-stage batches.");
     }
 
     private void UploadIndirectPreviewBatches(BrresModelReader.DecodeResult model)
@@ -1344,6 +2240,7 @@ internal sealed class BrresOpenGlRenderer
                 GL.BindTexture(TextureTarget.Texture2D, batch.Texture);
                 GL.BindVertexArray(batch.Vao);
                 GL.DrawArrays(PrimitiveType.Triangles, 0, batch.VertexCount);
+
             }
         }
         finally
@@ -1960,22 +2857,51 @@ internal sealed class BrresOpenGlRenderer
 
     private void DrawConsolidatedTevPreview(Matrix4 viewProjection,
         bool includeRegular = true, bool regularPolygonOffset = true,
-        RegularTevBlend regularBlend = RegularTevBlend.Opaque)
+        RegularTevBlend regularBlend = RegularTevBlend.Opaque,
+        bool includeSingleStage = false, bool extendedCompare = false, bool extendedSwap = false,
+        bool extendedPrecision = false, bool includeCompleteStages = false)
     {
+        var complete = GetTevBatches(CompleteTevStagesMode);
+        // Only suppress an older two-stage batch when EVERY polygon surface
+        // using that material received a full-stage replacement. Otherwise the
+        // legacy batch remains as fallback for the surfaces we could not upload.
+        var replacementMaterialIds = new HashSet<int>();
+        if (includeCompleteStages && _requested is not null)
+        {
+            foreach (var group in complete.GroupBy(batch => batch.MaterialIndex))
+            {
+                int surfaceCount = _requested.PolygonSurfaces.Count(surface =>
+                    _requested.SurfaceMaterials.TryGetValue(surface.ObjectIndex, out var material) &&
+                    material.MaterialIndex == group.Key);
+                if (group.Count() == surfaceCount && surfaceCount > 0)
+                    replacementMaterialIds.Add(group.Key);
+            }
+        }
         // Isolated window-frame A/B diagnostics:
-        //   mode 13: unchanged Phase 3 consolidated renderer
+        //   mode 13: unchanged Phase 3 consolidated renderer (15 advanced batches)
+        //   mode 19: same three passes, followed by the new single-stage pass
         //   mode 14: baseline + indirect/projected; skip regular TEV
         //   mode 15: all three passes, but do not pull regular TEV forward in depth
         // Every other material pass and diagnostic mode retains its old state.
         foreach (var pass in _materialDrawPipeline)
         {
+            if (pass.ShaderMode == SingleStageTevTestMode && !includeSingleStage) continue;
+            if (pass.ShaderMode == CompleteTevStagesMode && !includeCompleteStages) continue;
             if (pass.ShaderMode == RegularTevMode && !includeRegular)
                 continue;
             bool useOffset = pass.ShaderMode != RegularTevMode || regularPolygonOffset;
-            DrawTevInputPreview(viewProjection, pass.Batches, pass.ShaderMode,
+            IReadOnlyList<TevInputBatch> batches = replacementMaterialIds.Count == 0 ||
+                pass.ShaderMode == CompleteTevStagesMode ? pass.Batches :
+                pass.Batches.Where(batch => !replacementMaterialIds.Contains(batch.MaterialIndex)).ToArray();
+            // Full-stage batches share the regular TEV shader, but their mode
+            // identifies the complete-stage uniform routing rather than texture preview.
+            DrawTevInputPreview(viewProjection, batches,
+                pass.ShaderMode == CompleteTevStagesMode ? RegularTevMode : pass.ShaderMode,
                 polygonOffset: useOffset,
                 regularBlend: pass.ShaderMode == RegularTevMode ? regularBlend : RegularTevBlend.Opaque,
-                suppressedMaterial: pass.ShaderMode == RegularTevMode ? _suppressedRegularTevMaterial : -1);
+                suppressedMaterial: pass.ShaderMode == RegularTevMode ? _suppressedRegularTevMaterial : -1,
+                extendedCompare: extendedCompare, extendedSwap: extendedSwap,
+                extendedPrecision: extendedPrecision);
         }
     }
 
@@ -1993,12 +2919,32 @@ internal sealed class BrresOpenGlRenderer
         // This estimate assumes one GPU batch per polygon surface; it retains
         // Phase 1's existing behavior and is not a proof of GX-exact coverage.
         int baselineOnly = Math.Max(0, model.PolygonSurfaces.Count - advanced);
+        // Step 6f Pass 3: compute actual coverage from model-scoped registered batches.
+        var single = GetTevBatches(SingleStageTevTestMode);
+        var groups = new[]
+        {
+            GetTevBatches(RegularTevMode),
+            GetTevBatches(IndirectTevMode),
+            GetTevBatches(ProjectedTevMode),
+            (IReadOnlyList<TevInputBatch>)single
+        };
+        var all = groups.SelectMany(group => group).ToArray();
+        int sharedMaterialIds = all.GroupBy(batch => batch.MaterialIndex)
+            .Count(group => group.Count() > 1);
+        int baselineOnlyEstimate = Math.Max(0, model.PolygonSurfaces.Count - all.Length);
+        WriteDiagnostic($"Step 6f Pass 3 unified consolidated TEV: " +
+            $"regular={regularCount}, indirect={indirectCount}, projected={projectedCount}, " +
+            $"single={single.Count}, advanced={all.Length}, " +
+            $"baselineOnlyEstimate={baselineOnlyEstimate}, sharedMaterialIds={sharedMaterialIds}; " +
+            $"GPU-owned={_gpuTevMaterials.Count}; order=regular/indirect/projected/single; " +
+            "default=19, reference=13, F9=baseline/19. Existing GLSL and GX approximations unchanged.");
         WriteDiagnostic($"Step 6d.5 Pass 4k consolidated TEV: " +
             $"regular={regularCount}, indirect={indirectCount}, " +
             $"projected={projectedCount}, totalAdvanced={advanced}, " +
             $"baselineOnlyEstimate={baselineOnly}, sharedMaterialIds={duplicateMaterials}. " +
-            "Step 6e Phase 3: unified GPU batch ownership; default mode 13, " +
-            "F8 cycles 0-13, F9 toggles baseline/consolidated. Shader equations unchanged. " +
+            "Step 6f Pass 3: original 15-batch mode13 remains a reference; " +
+            "default mode19 includes single-stage batches, F9 toggles baseline/mode19. " +
+            "Shader equations unchanged. " +
             "Projected TEV uses frozen FIFO frame0, indirect regular UV can be approximate.");
     }
 
@@ -2006,7 +2952,8 @@ internal sealed class BrresOpenGlRenderer
         IReadOnlyList<TevInputBatch>? selectedBatches = null, int? selectedMode = null,
         bool polygonOffset = true,
         RegularTevBlend regularBlend = RegularTevBlend.Opaque,
-        int suppressedMaterial = -1)
+        int suppressedMaterial = -1, bool extendedCompare = false, bool extendedSwap = false,
+        bool extendedPrecision = false)
     {
         int mode = selectedMode ?? TevInputPreviewMode;
         IReadOnlyList<TevInputBatch> drawBatches = selectedBatches ?? GetTevBatches(mode);
@@ -2016,8 +2963,12 @@ internal sealed class BrresOpenGlRenderer
         GL.UniformMatrix4(_tevInputMatrix, false, ref viewProjection);
         GL.Uniform1(_tevInputSampler0, 0);
         GL.Uniform1(_tevInputSampler1, 1);
+        GL.Uniform1(_tevInputSampler2, 3);
         GL.Uniform1(_tevIndirectSampler, 2);
         GL.Uniform1(_tevInputMode, mode);
+        GL.Uniform1(_tevExtendedCompareLocation, extendedCompare ? 1 : 0);
+        GL.Uniform1(_tevExtendedSwapLocation, extendedSwap ? 1 : 0);
+        GL.Uniform1(_tevExtendedPrecisionLocation, extendedPrecision ? 1 : 0);
         // Default remains opaque, exactly as in Phase 3. Modes 16/17 opt in
         // ONLY for the regular pass; the indirect/projected passes are unchanged.
         if (regularBlend == RegularTevBlend.Opaque)
@@ -2057,6 +3008,15 @@ internal sealed class BrresOpenGlRenderer
                     ? _material7WindowTest switch { 1 => 1, 2 => 2, _ => mode }
                     : mode;
                 GL.Uniform1(_tevInputMode, effectiveMode);
+                var stages = batch.CompleteStages;
+                bool completeStages = stages is { Length: > 0 };
+                GL.Uniform1(_tevCompleteStageSequenceLocation, completeStages ? 1 : 0);
+                GL.Uniform1(_tevStageCountLocation, completeStages ? stages!.Length : batch.StageCount);
+                if (completeStages)
+                {
+                    for (int k = 0; k < stages!.Length; k++)
+                        GL.Uniform1(_tevStageSamplerSlotLocations[k], batch.StageSamplerSlots![k]);
+                }
                 GL.Uniform1(_tevIndirectEnabled, mode == 6 && batch.IndirectTexture != 0 ? 1 : 0);
                 GL.Uniform1(_tevProjectedStage1, mode == 12 && batch.ProjectedStage1 ? 1 : 0);
                 if (mode == 6)
@@ -2072,6 +3032,27 @@ internal sealed class BrresOpenGlRenderer
                 GL.BindTexture(TextureTarget.Texture2D, batch.Texture0);
                 GL.ActiveTexture(TextureUnit.Texture1);
                 GL.BindTexture(TextureTarget.Texture2D, batch.Texture1);
+                GL.ActiveTexture(TextureUnit.Texture3);
+                GL.BindTexture(TextureTarget.Texture2D, batch.Texture2 != 0 ? batch.Texture2 : _whiteTexture);
+                bool probeMaterial7 = mode == RegularTevMode && batch.MaterialIndex == 7;
+                int uvProbe = probeMaterial7 ? _material7UvSamplingTest : 0;
+                // The raw-source test uses extra attributes only when uploaded;
+                // otherwise safely revert to the validated resolved coordinates.
+                GL.Uniform1(_tevMaterial7UvMode, uvProbe is 1 or 2 ? uvProbe : 0);
+                bool nearestProbe = uvProbe == 3;
+                if (nearestProbe)
+                {
+                    GL.ActiveTexture(TextureUnit.Texture0);
+                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter,
+                        (int)TextureMinFilter.Nearest);
+                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter,
+                        (int)TextureMagFilter.Nearest);
+                    GL.ActiveTexture(TextureUnit.Texture1);
+                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter,
+                        (int)TextureMinFilter.Nearest);
+                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter,
+                        (int)TextureMagFilter.Nearest);
+                }
                 if ((mode is 3 or 6 or 12) && !batch.EquationSupported) continue;
                 if (mode is 3 or 6 or 12)
                 {
@@ -2085,17 +3066,20 @@ internal sealed class BrresOpenGlRenderer
                             colors is null ? 0f : colors[offset + 2],
                             colors is null ? 0f : colors[offset + 3]);
                     }
+                    bool debugMaterial7 = mode == RegularTevMode && batch.MaterialIndex == 7;
+                    bool forceReg0White = debugMaterial7 && (_material7InputTest == 1 || _material7InputTest == 3);
+                    bool forceRasterWhite = debugMaterial7 && (_material7InputTest == 2 || _material7InputTest == 3);
                     for (int k = 0; k < 4; ++k)
                     {
                         var initial = batch.InitialRegisters?.Rgba;
                         int offset = k * 4;
                         GL.Uniform4(_tevInitialRegisters[k],
-                            initial is null ? 0f : initial[offset],
-                            initial is null ? 0f : initial[offset + 1],
-                            initial is null ? 0f : initial[offset + 2],
+                            forceReg0White && k == 1 ? 1f : (initial is null ? 0f : initial[offset]),
+                            forceReg0White && k == 1 ? 1f : (initial is null ? 0f : initial[offset + 1]),
+                            forceReg0White && k == 1 ? 1f : (initial is null ? 0f : initial[offset + 2]),
                             initial is null ? 0f : initial[offset + 3]);
                     }
-                    GL.Uniform1(_tevUseVertexRaster, batch.HasVertexRaster ? 1 : 0);
+                    GL.Uniform1(_tevUseVertexRaster, !forceRasterWhite && batch.HasVertexRaster ? 1 : 0);
                     var rc = batch.RasterChannel;
                     var mat = rc?.MaterialRgba;
                     GL.Uniform4(_tevRasterMaterialColor,
@@ -2104,14 +3088,71 @@ internal sealed class BrresOpenGlRenderer
                     // Only unlit channels are resolved exactly. Lit/missing channels
                     // retain the known Color0 preview rather than fake lighting.
                     GL.Uniform3(_tevRasterSourceFlags,
-                        rc?.IsUnlit == true ? 1 : 0,
+                        forceRasterWhite ? 0 : (rc?.IsUnlit == true ? 1 : 0),
                         rc?.ColorMaterialFromVertex == true ? 1 : 0,
                         rc?.AlphaMaterialFromVertex == true ? 1 : 0);
-                    UploadTevStageUniforms(batch.Equation0, 0);
-                    UploadTevStageUniforms(batch.Equation1, 1);
+                    if (completeStages)
+                    {
+                        for (int k = 0; k < stages!.Length; k++)
+                            UploadTevStageUniforms(stages[k], k);
+                    }
+                    else
+                    {
+                        UploadTevStageUniforms(batch.Equation0, 0);
+                        UploadTevStageUniforms(batch.Equation1, 1);
+                    }
+                    // Slot 0 remains RGBA unless a complete KSEL pair was decoded.
+                    // Incomplete non-default tables are never silently applied.
+                    var shaderSwaps = _uploaded is not null &&
+                        _uploaded.TevShaders.TryGetValue(batch.MaterialIndex, out var decodedShader)
+                        ? decodedShader.Swaps : null;
+                    for (int tableIndex = 0; tableIndex < 5; tableIndex++)
+                    {
+                        int[] channels = tableIndex < 4 && shaderSwaps is not null &&
+                            shaderSwaps.IsComplete(tableIndex)
+                            ? shaderSwaps.For(tableIndex) : [0, 1, 2, 3];
+                        GL.Uniform4(_tevSwapTableLocations[tableIndex], channels[0],
+                            channels[1], channels[2], channels[3]);
+                    }
+                    if (completeStages)
+                    {
+                        for (int k = 0; k < stages!.Length; k++)
+                        {
+                            var stage = stages[k];
+                            GL.Uniform2(_tevStageSwapLocations[k],
+                                shaderSwaps?.IsComplete(stage.RasterSwap) == true ? stage.RasterSwap : 4,
+                                shaderSwaps?.IsComplete(stage.TextureSwap) == true ? stage.TextureSwap : 4);
+                        }
+                    }
+                    else
+                    {
+                        GL.Uniform2(_tevStageSwapLocations[0],
+                            shaderSwaps?.IsComplete(batch.Equation0.RasterSwap) == true ? batch.Equation0.RasterSwap : 4,
+                            shaderSwaps?.IsComplete(batch.Equation0.TextureSwap) == true ? batch.Equation0.TextureSwap : 4);
+                        GL.Uniform2(_tevStageSwapLocations[1],
+                            shaderSwaps?.IsComplete(batch.Equation1.RasterSwap) == true ? batch.Equation1.RasterSwap : 4,
+                            shaderSwaps?.IsComplete(batch.Equation1.TextureSwap) == true ? batch.Equation1.TextureSwap : 4);
+                    }
                 }
                 GL.BindVertexArray(batch.Vao);
                 GL.DrawArrays(PrimitiveType.Triangles, 0, batch.VertexCount);
+                if (nearestProbe)
+                {
+                    // Texture objects are shared across materials. Restore the
+                    // original linear filters immediately after the F7 test draw.
+                    GL.ActiveTexture(TextureUnit.Texture0);
+                    GL.BindTexture(TextureTarget.Texture2D, batch.Texture0);
+                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter,
+                        (int)TextureMinFilter.Linear);
+                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter,
+                        (int)TextureMagFilter.Linear);
+                    GL.ActiveTexture(TextureUnit.Texture1);
+                    GL.BindTexture(TextureTarget.Texture2D, batch.Texture1);
+                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter,
+                        (int)TextureMinFilter.Linear);
+                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter,
+                        (int)TextureMagFilter.Linear);
+                }
             }
         }
         finally
@@ -2121,6 +3162,8 @@ internal sealed class BrresOpenGlRenderer
             GL.Enable(EnableCap.Blend);
             // Restore blending for all baseline and subsequent advanced passes.
             GL.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+            GL.ActiveTexture(TextureUnit.Texture3);
+            GL.BindTexture(TextureTarget.Texture2D, 0);
             GL.ActiveTexture(TextureUnit.Texture2);
             GL.BindTexture(TextureTarget.Texture2D, 0);
             GL.ActiveTexture(TextureUnit.Texture1);
@@ -2155,18 +3198,27 @@ internal sealed class BrresOpenGlRenderer
             layout(location=3) in vec4 aRasterColor;
             layout(location=4) in vec2 aIndirectUv;
             layout(location=5) in vec3 aProjectedStq;
+            layout(location=6) in vec2 aMaterial7RawUv0;
+            layout(location=7) in vec2 aMaterial7RawUv1;
+            layout(location=8) in vec2 aStage2Uv;
             uniform mat4 uViewProjection;
             out vec2 vStage0Uv;
             out vec2 vStage1Uv;
+            out vec2 vStage2Uv;
             out vec4 vRasterColor;
             out vec2 vIndirectUv;
             out vec3 vProjectedStq;
+            out vec2 vMaterial7RawUv0;
+            out vec2 vMaterial7RawUv1;
             void main() {
+                vMaterial7RawUv0 = aMaterial7RawUv0;
+                vMaterial7RawUv1 = aMaterial7RawUv1;
                 vProjectedStq = aProjectedStq;
                 vIndirectUv = aIndirectUv;
                 gl_Position = uViewProjection * vec4(aPosition, 1.0);
                 vStage0Uv = aStage0Uv;
                 vStage1Uv = aStage1Uv;
+                vStage2Uv = aStage2Uv;
                 vRasterColor = aRasterColor;
             }
             """;
@@ -2174,9 +3226,13 @@ internal sealed class BrresOpenGlRenderer
             #version 330 core
             in vec2 vStage0Uv;
             in vec2 vStage1Uv;
+            in vec2 vStage2Uv;
             in vec4 vRasterColor;
             in vec2 vIndirectUv;
             in vec3 vProjectedStq;
+            in vec2 vMaterial7RawUv0;
+            in vec2 vMaterial7RawUv1;
+            uniform int uMaterial7UvMode;
             uniform int uProjectedStage1;
             uniform sampler2D uIndirectSource;
             uniform int uIndirectEnabled;
@@ -2195,16 +3251,40 @@ internal sealed class BrresOpenGlRenderer
             }
             uniform sampler2D uStage0;
             uniform sampler2D uStage1;
+            uniform sampler2D uStage2;
+            uniform int uCompleteStageSequence;
+            // -1 disables lookup; 0/1/2 select the three independent samples.
+            uniform int uStageSamplerSlot[16];
             uniform int uPreviewMode;
-            uniform ivec4 uColorArgs[2];
-            uniform ivec4 uAlphaArgs[2];
+            uniform int uStageCount;
+            uniform int uExtendedCompare;
+            uniform int uExtendedSwap;
+            uniform int uExtendedPrecision;
+            // GX color registers hold signed 11-bit channel integers with 8-bit
+            // fractional units. Keep missing initialization explicit (zero fallback).
+            float quantizeTevRegister(float value, bool clamped) {
+                // Round a stage result to a channel integer before writing it back.
+                // The GX pipeline has additional operation-specific precision rules;
+                // this is a controlled A/B approximation, not cycle-exact emulation.
+                int raw = int(floor(value * 255.0 + 0.5));
+                raw = clamped ? clamp(raw, 0, 255) : clamp(raw, -1024, 1023);
+                return float(raw) / 255.0;
+            }
+            uniform ivec4 uSwapTables[5];
+            uniform ivec2 uStageSwap[16];
+            vec4 swappedColor(vec4 value, int table) {
+                ivec4 sel = uSwapTables[clamp(table, 0, 4)];
+                return vec4(value[sel.r], value[sel.g], value[sel.b], value[sel.a]);
+            }
+            uniform ivec4 uColorArgs[16];
+            uniform ivec4 uAlphaArgs[16];
             // bias, subtract, scale, clamp
-            uniform ivec4 uColorSettings[2];
-            uniform ivec4 uAlphaSettings[2];
-            uniform int uColorDest[2];
-            uniform int uAlphaDest[2];
-            uniform int uKonstColorFraction[2];
-            uniform int uKonstAlphaFraction[2];
+            uniform ivec4 uColorSettings[16];
+            uniform ivec4 uAlphaSettings[16];
+            uniform int uColorDest[16];
+            uniform int uAlphaDest[16];
+            uniform int uKonstColorFraction[16];
+            uniform int uKonstAlphaFraction[16];
             uniform vec4 uKonstRegisters[4];
             uniform vec4 uInitialRegisters[4];
             float konstFraction(int selection) {
@@ -2227,7 +3307,7 @@ internal sealed class BrresOpenGlRenderer
                 return vec3(0.0);
             }
             out vec4 FragColor;
-            float colorArg(int selector, int component, vec4 tex, vec4 regs[4], vec3 konst) {
+            float colorArg(int selector, int component, vec4 tex, vec4 raster, vec4 regs[4], vec3 konst) {
                 if (selector < 8) {
                     int regIndex = selector / 2;
                     return (selector % 2) == 0 ? regs[regIndex][component] : regs[regIndex].a;
@@ -2235,19 +3315,59 @@ internal sealed class BrresOpenGlRenderer
                 if (selector == 8) return tex[component];
                 if (selector == 9) return tex.a;
                 // GX raster channel0: available vertex color, or documented white fallback.
-                if (selector == 10) return rasterInput()[component];
-                if (selector == 11) return rasterInput().a;
+                if (selector == 10) return raster[component];
+                if (selector == 11) return raster.a;
                 if (selector == 12) return 1.0;
                 if (selector == 13) return 0.5;
                 if (selector == 14) return konst[component];
                 return 0.0; // 15: GX zero.
             }
-            float alphaArg(int selector, vec4 tex, vec4 regs[4], float konst) {
+            float alphaArg(int selector, vec4 tex, vec4 raster, vec4 regs[4], float konst) {
                 if (selector <= 3) return regs[selector].a;
                 if (selector == 4) return tex.a;
-                if (selector == 5) return rasterInput().a;
+                if (selector == 5) return raster.a;
                 if (selector == 6) return konst;
                 return 0.0; // 7: GX zero.
+            }
+            // GX compare-mode TEV: bias bits 3 mean that scale/subtract bits
+            // encode an operation rather than arithmetic scale and subtract.
+            // Compare in GX's 8-bit domain; this is not cycle-exact rounding.
+            ivec3 byteRgb(vec3 value) {
+                return ivec3(clamp(floor(value * 255.0 + 0.5), vec3(0.0), vec3(255.0)));
+            }
+            int byteAlpha(float value) {
+                return int(clamp(floor(value * 255.0 + 0.5), 0.0, 255.0));
+            }
+            vec3 compareColor(vec3 a, vec3 b, vec3 c, vec3 d, int op, bool clamped) {
+                ivec3 aa = byteRgb(a);
+                ivec3 bb = byteRgb(b);
+                bool matchValue = false;
+                if (op < 2) matchValue = op == 0 ? aa.r > bb.r : aa.r == bb.r;
+                else if (op < 4) {
+                    int va = aa.r | (aa.g << 8);
+                    int vb = bb.r | (bb.g << 8);
+                    matchValue = op == 2 ? va > vb : va == vb;
+                } else if (op < 6) {
+                    int va = aa.r | (aa.g << 8) | (aa.b << 16);
+                    int vb = bb.r | (bb.g << 8) | (bb.b << 16);
+                    matchValue = op == 4 ? va > vb : va == vb;
+                }
+                vec3 result;
+                if (op < 6) result = d + (matchValue ? c : vec3(0.0));
+                else if (op == 6) result = d + vec3(greaterThan(aa, bb)) * c;
+                else result = d + vec3(equal(aa, bb)) * c;
+                return clamp(result, vec3(clamped ? 0.0 : -4.0),
+                                     vec3(clamped ? 1.0 : 4.0));
+            }
+            float compareAlpha(float a, float b, float c, float d,
+                               ivec4 settings) {
+                int op = settings.z * 2 + settings.y;
+                // Alpha compare ops use A8 GT/EQ (regardless of color width).
+                bool hit = (op & 1) == 0 ? byteAlpha(a) > byteAlpha(b)
+                                          : byteAlpha(a) == byteAlpha(b);
+                return clamp(d + (hit ? c : 0.0),
+                             settings.w != 0 ? 0.0 : -4.0,
+                             settings.w != 0 ? 1.0 : 4.0);
             }
             float combine(float a, float b, float c, float d, ivec4 settings) {
                 float mixValue = a * (1.0 - c) + b * c;
@@ -2271,11 +3391,23 @@ internal sealed class BrresOpenGlRenderer
                 }
                 // Approximate GX fixed-point coordinate accumulation in normalized
                 // texture space; do not mistake this for cycle-exact GX behavior.
-                vec2 uv0 = vStage0Uv + ofs / vec2(textureSize(uStage0, 0));
-                vec2 uv1 = vStage1Uv + ofs / vec2(textureSize(uStage1, 0));
+                vec2 sourceUv0 = vStage0Uv;
+                vec2 sourceUv1 = vStage1Uv;
+                if (uMaterial7UvMode == 1) {
+                    sourceUv0 = vMaterial7RawUv0;
+                    sourceUv1 = vMaterial7RawUv1;
+                } else if (uMaterial7UvMode == 2) {
+                    sourceUv0 = vStage1Uv;
+                    sourceUv1 = vStage0Uv;
+                }
+                vec2 uv0 = sourceUv0 + ofs / vec2(textureSize(uStage0, 0));
+                vec2 uv1 = sourceUv1 + ofs / vec2(textureSize(uStage1, 0));
                 vec4 tex0 = texture(uStage0, uv0);
                 vec4 tex1 = uProjectedStage1 != 0
                     ? textureProj(uStage1, vProjectedStq) : texture(uStage1, uv1);
+                vec4 tex2 = vec4(1.0);
+                if (uCompleteStageSequence != 0)
+                    tex2 = texture(uStage2, vStage2Uv);
                 if (uPreviewMode != 3 && uPreviewMode != 6 && uPreviewMode != 12) {
                     FragColor = uPreviewMode == 1 ? tex0 : tex1;
                     if (FragColor.a <= 0.0039) discard;
@@ -2284,25 +3416,63 @@ internal sealed class BrresOpenGlRenderer
                 // Initialize PREV/REG0/REG1/REG2 with decoded material BP values.
                 // Undeclared channels are currently zero-filled, reported in logs.
                 vec4 regs[4];
-                for (int r = 0; r < 4; ++r) regs[r] = uInitialRegisters[r];
-                for (int stage = 0; stage < 2; ++stage) {
-                    vec4 tex = stage == 0 ? tex0 : tex1;
+                for (int r = 0; r < 4; ++r) {
+                    regs[r] = uInitialRegisters[r];
+                    if (uExtendedPrecision != 0) {
+                        for (int c = 0; c < 4; ++c)
+                            regs[r][c] = quantizeTevRegister(regs[r][c], false);
+                    }
+                }
+                for (int stage = 0; stage < uStageCount && stage < 16; ++stage) {
+                    int slot = uCompleteStageSequence != 0 ? uStageSamplerSlot[stage] : stage;
+                    // GX executes a TEV stage even without texture sampling.
+                    // The inactive texture input is white, not a dropped stage.
+                    vec4 tex = slot < 0 ? vec4(1.0) :
+                        slot == 0 ? tex0 : slot == 1 ? tex1 : tex2;
+                    vec4 raster = rasterInput();
+                    if (uExtendedSwap != 0) {
+                        tex = swappedColor(tex, uStageSwap[stage].y);
+                        raster = swappedColor(raster, uStageSwap[stage].x);
+                    }
                     vec3 konstColor = konstColorValue(uKonstColorFraction[stage]);
                     float konstAlpha = konstAlphaValue(uKonstAlphaFraction[stage]);
                     vec3 rgb = vec3(0.0);
-                    for (int c = 0; c < 3; ++c) {
-                        rgb[c] = combine(colorArg(uColorArgs[stage].x,c,tex,regs,konstColor),
-                                         colorArg(uColorArgs[stage].y,c,tex,regs,konstColor),
-                                         colorArg(uColorArgs[stage].z,c,tex,regs,konstColor),
-                                         colorArg(uColorArgs[stage].w,c,tex,regs,konstColor),
-                                         uColorSettings[stage]);
+                    if (uExtendedCompare != 0 && uColorSettings[stage].x == 3) {
+                        vec3 ca, cb, cc, cd;
+                        for (int channel = 0; channel < 3; ++channel) {
+                            ca[channel] = colorArg(uColorArgs[stage].x,channel,tex,raster,regs,konstColor);
+                            cb[channel] = colorArg(uColorArgs[stage].y,channel,tex,raster,regs,konstColor);
+                            cc[channel] = colorArg(uColorArgs[stage].z,channel,tex,raster,regs,konstColor);
+                            cd[channel] = colorArg(uColorArgs[stage].w,channel,tex,raster,regs,konstColor);
+                        }
+                        int op = uColorSettings[stage].z * 2 + uColorSettings[stage].y;
+                        rgb = compareColor(ca, cb, cc, cd, op, uColorSettings[stage].w != 0);
+                    } else {
+                        for (int channel = 0; channel < 3; ++channel) {
+                            rgb[channel] = combine(colorArg(uColorArgs[stage].x,channel,tex,raster,regs,konstColor),
+                                                   colorArg(uColorArgs[stage].y,channel,tex,raster,regs,konstColor),
+                                                   colorArg(uColorArgs[stage].z,channel,tex,raster,regs,konstColor),
+                                                   colorArg(uColorArgs[stage].w,channel,tex,raster,regs,konstColor),
+                                                   uColorSettings[stage]);
+                        }
                     }
-                    float alpha = combine(alphaArg(uAlphaArgs[stage].x,tex,regs,konstAlpha),
-                                          alphaArg(uAlphaArgs[stage].y,tex,regs,konstAlpha),
-                                          alphaArg(uAlphaArgs[stage].z,tex,regs,konstAlpha),
-                                          alphaArg(uAlphaArgs[stage].w,tex,regs,konstAlpha),
-                                          uAlphaSettings[stage]);
+                    float aa = alphaArg(uAlphaArgs[stage].x,tex,raster,regs,konstAlpha);
+                    float ab = alphaArg(uAlphaArgs[stage].y,tex,raster,regs,konstAlpha);
+                    float ac = alphaArg(uAlphaArgs[stage].z,tex,raster,regs,konstAlpha);
+                    float ad = alphaArg(uAlphaArgs[stage].w,tex,raster,regs,konstAlpha);
+                    float alpha = (uExtendedCompare != 0 && uAlphaSettings[stage].x == 3)
+                        ? compareAlpha(aa, ab, ac, ad, uAlphaSettings[stage])
+                        : combine(aa, ab, ac, ad, uAlphaSettings[stage]);
                     // GX maintains separate RGB/alpha destinations.
+                    if (uExtendedPrecision != 0) {
+                        bool colorClamp = uColorSettings[stage].w != 0;
+                        bool alphaClamp = uAlphaSettings[stage].w != 0;
+                        rgb = vec3(quantizeTevRegister(rgb.r, colorClamp),
+                                   quantizeTevRegister(rgb.g, colorClamp),
+                                   quantizeTevRegister(rgb.b, colorClamp));
+                        alpha = quantizeTevRegister(alpha, alphaClamp);
+                    }
+                    // Independently write RGB and alpha; GX permits separate targets.
                     regs[uColorDest[stage]].rgb = rgb;
                     regs[uAlphaDest[stage]].a = alpha;
                 }
@@ -2326,8 +3496,16 @@ internal sealed class BrresOpenGlRenderer
         _tevInputProgram = program;
         _tevInputMatrix = GL.GetUniformLocation(program, "uViewProjection");
         _tevInputMode = GL.GetUniformLocation(program, "uPreviewMode");
+        _tevStageCountLocation = GL.GetUniformLocation(program, "uStageCount");
+        _tevCompleteStageSequenceLocation = GL.GetUniformLocation(program, "uCompleteStageSequence");
+        for (int i = 0; i < 16; i++)
+            _tevStageSamplerSlotLocations[i] = GL.GetUniformLocation(program, $"uStageSamplerSlot[{i}]");
+        _tevExtendedCompareLocation = GL.GetUniformLocation(program, "uExtendedCompare");
+        _tevExtendedSwapLocation = GL.GetUniformLocation(program, "uExtendedSwap");
+        _tevExtendedPrecisionLocation = GL.GetUniformLocation(program, "uExtendedPrecision");
         _tevInputSampler0 = GL.GetUniformLocation(program, "uStage0");
         _tevInputSampler1 = GL.GetUniformLocation(program, "uStage1");
+        _tevInputSampler2 = GL.GetUniformLocation(program, "uStage2");
         _tevProjectedStage1 = GL.GetUniformLocation(program, "uProjectedStage1");
         _tevIndirectSampler = GL.GetUniformLocation(program, "uIndirectSource");
         _tevIndirectEnabled = GL.GetUniformLocation(program, "uIndirectEnabled");
@@ -2338,8 +3516,12 @@ internal sealed class BrresOpenGlRenderer
         _tevUseVertexRaster = GL.GetUniformLocation(program, "uUseVertexRaster");
         _tevRasterMaterialColor = GL.GetUniformLocation(program, "uRasterMaterialColor");
         _tevRasterSourceFlags = GL.GetUniformLocation(program, "uRasterSourceFlags");
-        for (int i = 0; i < 2; i++)
+        _tevMaterial7UvMode = GL.GetUniformLocation(program, "uMaterial7UvMode");
+        for (int i = 0; i < 5; i++)
+            _tevSwapTableLocations[i] = GL.GetUniformLocation(program, $"uSwapTables[{i}]");
+        for (int i = 0; i < 16; i++)
         {
+            _tevStageSwapLocations[i] = GL.GetUniformLocation(program, $"uStageSwap[{i}]");
             _tevColorArgs[i] = GL.GetUniformLocation(program, $"uColorArgs[{i}]");
             _tevAlphaArgs[i] = GL.GetUniformLocation(program, $"uAlphaArgs[{i}]");
             _tevColorSettings[i] = GL.GetUniformLocation(program, $"uColorSettings[{i}]");
@@ -2472,7 +3654,7 @@ internal sealed class BrresOpenGlRenderer
         GL.BindTexture(TextureTarget.Texture2D, id);
         GL.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
         GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba8,
-            pixels.Width, pixels.Height, 0, PixelFormat.Rgba, PixelType.UnsignedByte, pixels.Rgba);
+            pixels.Width, pixels.Height, 0, GlPixelFormat.Rgba, PixelType.UnsignedByte, pixels.Rgba);
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)Wrap(wrapU));
@@ -2533,7 +3715,7 @@ internal sealed class BrresOpenGlRenderer
         _whiteTexture = GL.GenTexture();
         GL.BindTexture(TextureTarget.Texture2D, _whiteTexture);
         GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba8, 1, 1, 0,
-            PixelFormat.Rgba, PixelType.UnsignedByte, new byte[] { 255, 255, 255, 255 });
+            GlPixelFormat.Rgba, PixelType.UnsignedByte, new byte[] { 255, 255, 255, 255 });
     }
 
     private static int Compile(ShaderType type, string src)
@@ -2555,6 +3737,7 @@ internal sealed class BrresOpenGlRenderer
     {
         // Drop the model-scoped references before their GL batches are deleted.
         _materialDrawPipeline = [];
+        _generalTevPlans = [];
         foreach (var batch in _batches)
         {
             GL.DeleteBuffer(batch.Vbo);
