@@ -133,6 +133,30 @@ internal sealed class BrresOpenGlRenderer
     // Step 6e isolated regression investigation: -1 draws every regular TEV
     // material; F10 cycles one excluded regular material at a time.  This is
     // diagnostic-only and does not modify material eligibility or shaders.
+    // Material 7 window-frame regression: isolated stage-source previews.
+    // Mode 0: normal TEV; 1: stage 0 texture; 2: stage 1 texture;
+    // 3: omit material 7, leaving its baseline pixels visible.
+    // No material-7 assumption is made for other tracks: the diagnostic is only
+    // meaningful if this model actually has an eligible regular material 7.
+    private int _material7WindowTest = 0;
+    public string CycleMaterial7WindowTest()
+    {
+        _material7WindowTest = (_material7WindowTest + 1) % 4;
+        _suppressedRegularTevMaterial = -1;
+        TevInputPreviewMode = ConsolidatedTevMode;
+        string name = _material7WindowTest switch
+        {
+            1 => "material 7 STAGE 0 texture only",
+            2 => "material 7 STAGE 1 texture only",
+            3 => "material 7 baseline only (TEV omitted)",
+            _ => "material 7 original two-stage TEV"
+        };
+        string message = $"Step 6e material7 stage isolation: F11={_material7WindowTest}, {name}; " +
+            "other regular materials plus indirect and projected TEV unchanged; mode 13 active.";
+        WriteDiagnostic(message);
+        return message;
+    }
+
     private int _suppressedRegularTevMaterial = -1;
     public string CycleSuppressedRegularTevMaterial()
     {
@@ -698,6 +722,17 @@ internal sealed class BrresOpenGlRenderer
             }
             var layer0 = layers[sampled[0].TextureMap];
             var layer1 = layers[sampled[1].TextureMap];
+            if (mid == 7)
+            {
+                WriteDiagnostic($"Step 6e material7 source: object={surface.ObjectIndex}, " +
+                    $"corners={surface.Corners.Count}, " +
+                    $"stage0={sampled[0].Index} map={sampled[0].TextureMap} tex={layer0.TextureName} " +
+                    $"texcoord={sampled[0].TexCoord}; " +
+                    $"stage1={sampled[1].Index} map={sampled[1].TextureMap} tex={layer1.TextureName} " +
+                    $"texcoord={sampled[1].TexCoord}; " +
+                    $"stage0GX=[{sampled[0]}]; stage1GX=[{sampled[1]}]. " +
+                    "F11 A/B only; no change to original shader equations.");
+            }
             if (!model.TexturePixels.ContainsKey(layer0.TextureName) ||
                 !model.TexturePixels.ContainsKey(layer1.TextureName))
             {
@@ -2012,8 +2047,16 @@ internal sealed class BrresOpenGlRenderer
         {
             foreach (var batch in drawBatches)
             {
-                if (mode == RegularTevMode && batch.MaterialIndex == suppressedMaterial)
+                if (mode == RegularTevMode &&
+                    (batch.MaterialIndex == suppressedMaterial ||
+                     (batch.MaterialIndex == 7 && _material7WindowTest == 3)))
                     continue;
+                // The shader is unchanged: its existing stage-0 and stage-1
+                // sampling previews are reused for material 7 only.
+                int effectiveMode = mode == RegularTevMode && batch.MaterialIndex == 7
+                    ? _material7WindowTest switch { 1 => 1, 2 => 2, _ => mode }
+                    : mode;
+                GL.Uniform1(_tevInputMode, effectiveMode);
                 GL.Uniform1(_tevIndirectEnabled, mode == 6 && batch.IndirectTexture != 0 ? 1 : 0);
                 GL.Uniform1(_tevProjectedStage1, mode == 12 && batch.ProjectedStage1 ? 1 : 0);
                 if (mode == 6)

@@ -458,8 +458,21 @@ public partial class TrackMapPage : Page
         System.Diagnostics.Debug.WriteLine("Step 6e F10 material isolation: " + status);
     }
 
+    private void CycleMaterial7StageTest()
+    {
+        string status = _openGlRenderer.CycleMaterial7WindowTest();
+        LogOpenGl(status);
+        System.Diagnostics.Debug.WriteLine(status);
+    }
+
     private void GlKeyDown(object? sender, WF.KeyEventArgs e)
     {
+        if (e.KeyCode == WF.Keys.F11)
+        {
+            CycleMaterial7StageTest();
+            e.Handled = true;
+            return;
+        }
         if (e.KeyCode == WF.Keys.F10)
         {
             CycleWindowFrameMaterialExclusion();
@@ -628,6 +641,13 @@ public partial class TrackMapPage : Page
     // Camera-relative QZSD / WASD navigation. Focus the 3D viewport by clicking it.
     private void TrackMapPage_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
+            e.Key == System.Windows.Input.Key.F11)
+        {
+            CycleMaterial7StageTest();
+            e.Handled = true;
+            return;
+        }
         if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
             e.Key == System.Windows.Input.Key.F10)
         {
