@@ -52,6 +52,10 @@ public static class BrresModelReader
         internal IReadOnlyDictionary<int, BrresTevDiagnostics.InitialRegisters> TevInitialRegisters { get; init; }
             = new Dictionary<int, BrresTevDiagnostics.InitialRegisters>();
 
+        // Step 6d.5 Pass 1: read-only indirect GX configuration.
+        internal IReadOnlyDictionary<int, BrresIndirectTevDiagnostics.Material> TevIndirect { get; init; }
+            = new Dictionary<int, BrresIndirectTevDiagnostics.Material>();
+
         public string Summary =>
             $"BRRES mesh · {DecodedPolygonCount}/{PolygonCount} polygons · " +
             $"{DisplayVertices:N0} display vertices · {TriangleCount:N0} triangles" +
@@ -274,7 +278,9 @@ public static class BrresModelReader
                 .ToDictionary(shader => shader.MaterialIndex),
             TevKonst = BrresTevDiagnostics.ReadMaterialKonst(b, mdl, mdlLength),
             TevInitialRegisters = BrresTevDiagnostics.ReadInitialRegisters(b, mdl, mdlLength),
-            TevRasterChannels = BrresTevDiagnostics.ReadRasterChannel0(b, mdl, mdlLength)
+            TevRasterChannels = BrresTevDiagnostics.ReadRasterChannel0(b, mdl, mdlLength),
+            TevIndirect = BrresIndirectTevDiagnostics.Read(b, mdl, mdlLength,
+                BrresTevDiagnostics.Inspect(b, mdl, mdlLength).ToDictionary(s => s.MaterialIndex))
         };
     }
 

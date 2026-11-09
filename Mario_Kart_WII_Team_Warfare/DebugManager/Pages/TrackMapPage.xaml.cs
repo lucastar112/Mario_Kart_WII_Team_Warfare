@@ -410,20 +410,68 @@ public partial class TrackMapPage : Page
 
     private void CycleTevInputPreview()
     {
-        _openGlRenderer.TevInputPreviewMode = (_openGlRenderer.TevInputPreviewMode + 1) % 4;
+        _openGlRenderer.TevInputPreviewMode =
+            (_openGlRenderer.TevInputPreviewMode + 1) % BrresOpenGlRenderer.PreviewModeCount;
         string label = _openGlRenderer.TevInputPreviewMode switch
         {
             1 => "TEV stage 0 texture-input preview (not blended)",
             2 => "TEV stage 1 texture-input preview (not blended)",
-            3 => "Step 6d.2 experimental two-stage TEV equations (initial registers/post-matrices approximate)",
+            3 => "Step 6d.2 experimental two-stage TEV equations",
+            4 => "Step 6d.5 sampled indirect source texture (not TEV composition)",
+            5 => "Step 6d.5 indirect matrix offset visualization (not TEV composition)",
+            6 => "Step 6d.5 Pass 3 indirect TEV offsets (experimental; regular UV fallback possible)",
+            7 => "Step 6d.5 Pass 4 position-projected texgen (CAMERA projection diagnostic, not GX-exact)",
+            8 => "Step 6d.5 Pass 4f FIFO frame-0 captured GX projection (FROZEN VIEW; not live GX)",
+            9 => "Step 6d.5 Pass 4h Dolphin GX source-row/inputform and post-matrix order (TEST)",
+            10 => "Step 6d.5 Pass 4i GLSL textureProj reference against F8 mode 9 (TEST)",
+            11 => "Step 6d.5 Pass 4i interpolated Q sign: red negative / green positive / yellow near Q=0",
+            12 => "Step 6d.5 Pass 4j experimental material21 projected stage1 + two-stage TEV (frozen FIFO frame0)",
+            13 => "Step 6d.5 Pass 4k CONSOLIDATED TEV: regular + indirect water + projected material21 (experimental)",
+            14 => "Step 6e window-frame A/B: regular TEV OFF; retain baseline + indirect + projected",
+            15 => "Step 6e window-frame A/B: all TEV ON, regular TEV polygon offset OFF",
+            16 => "Step 6e window-frame A/B: regular TEV with SRC_ALPHA blending (indirect/projected unchanged)",
+            17 => "Step 6e window-frame A/B: regular TEV forced 50% blend for comparison (NOT GX-exact)",
             _ => "Verified first-layer baseline"
         };
         LogOpenGl("Step 6d: " + label);
         System.Diagnostics.Debug.WriteLine("Step 6d: " + label);
     }
 
+    // Step 6e: a one-key visual A/B comparison, without consuming F8's modes.
+    private void ToggleBaselineVsConsolidated()
+    {
+        _openGlRenderer.TevInputPreviewMode =
+            _openGlRenderer.TevInputPreviewMode == BrresOpenGlRenderer.ConsolidatedTevMode
+                ? BrresOpenGlRenderer.BaselineMode
+                : BrresOpenGlRenderer.ConsolidatedTevMode;
+        string label = _openGlRenderer.TevInputPreviewMode == BrresOpenGlRenderer.BaselineMode
+            ? "original WPF-parity OpenGL baseline (F9)"
+            : "consolidated experimental TEV (F9; regular + water + projected)";
+        LogOpenGl("Step 6e: " + label);
+        System.Diagnostics.Debug.WriteLine("Step 6e: " + label);
+    }
+
+    private void CycleWindowFrameMaterialExclusion()
+    {
+        string status = _openGlRenderer.CycleSuppressedRegularTevMaterial();
+        LogOpenGl("Step 6e F10 material isolation: " + status);
+        System.Diagnostics.Debug.WriteLine("Step 6e F10 material isolation: " + status);
+    }
+
     private void GlKeyDown(object? sender, WF.KeyEventArgs e)
     {
+        if (e.KeyCode == WF.Keys.F10)
+        {
+            CycleWindowFrameMaterialExclusion();
+            e.Handled = true;
+            return;
+        }
+        if (e.KeyCode == WF.Keys.F9)
+        {
+            ToggleBaselineVsConsolidated();
+            e.Handled = true;
+            return;
+        }
         if (e.KeyCode == WF.Keys.F8)
         {
             CycleTevInputPreview();
@@ -580,6 +628,20 @@ public partial class TrackMapPage : Page
     // Camera-relative QZSD / WASD navigation. Focus the 3D viewport by clicking it.
     private void TrackMapPage_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
+            e.Key == System.Windows.Input.Key.F10)
+        {
+            CycleWindowFrameMaterialExclusion();
+            e.Handled = true;
+            return;
+        }
+        if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
+            e.Key == System.Windows.Input.Key.F9)
+        {
+            ToggleBaselineVsConsolidated();
+            e.Handled = true;
+            return;
+        }
         if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
             e.Key == System.Windows.Input.Key.F8)
         {

@@ -19,6 +19,13 @@ internal static class BrresTexCoordGenerators
     {
         // Non-UV and projected/emboss generators require normals, raster colors,
         // or other vertex attributes that our current GX decoder does not expose.
+        // Material metadata does not guarantee a live XF texture-matrix load.
+        // A projection with MapMode 2 may depend on SCN0 camera state.
+        internal sbyte CameraReference { get; init; } = -1;
+        internal sbyte LightReference { get; init; } = -1;
+        internal float[]? AuthoredEffectMatrix { get; init; }
+        internal bool HasFiniteAuthoredEffectMatrix => AuthoredEffectMatrix is { Length: 12 } m && m.All(float.IsFinite);
+        internal bool NeedsRuntimeCameraMatrix => SourceRow == 0 && Projection == 1 && MapMode == 2;
         internal bool DirectUv => Type == 0 && InputUv is >= 0 and <= 1 &&
             Projection == 0 && !Normalize && MapMode == 0;
         // A nonzero DUALTEX selector is not itself evidence of a nonidentity transform.
@@ -36,6 +43,12 @@ internal static class BrresTexCoordGenerators
         string? Problem)
     {
         internal Generator? ForTexCoord(int coord) => Generators.GetValueOrDefault(coord);
+        // XF position/texture matrix memory occupies 0x0000-0x03FF;
+        // these words are *not* interchangeable with 0x1040 texgen definitions.
+        internal IReadOnlyDictionary<int, uint> ExplicitXfMatrixWords { get; init; } = new Dictionary<int, uint>();
+        // Complete contiguous 3x4 matrices, indexed by starting XF word address.
+        // Association with a generator still requires its GX matrix index.
+        internal IReadOnlyDictionary<int, float[]> ExplicitXfMatrices { get; init; } = new Dictionary<int, float[]>();
     }
 
     internal static IReadOnlyDictionary<int, Material> Read(ReadOnlySpan<byte> bytes, int mdl, uint mdlLength)
@@ -68,7 +81,7 @@ internal static class BrresTexCoordGenerators
             // v11: display-list pointer at +0x3C, XF stream at +0xE0 within it.
             int dl = I32(bytes, record + 0x3C);
             long xf = at + dl + 0xE0;
-            Dictionary<int, uint> info = [], dual = [];
+            Dictionary<int, uint> info = [], dual = [], matrixWords = [];
             if (dl > 0 && xf >= at && xf < at + size)
             {
                 long p = xf;
@@ -83,6 +96,7 @@ internal static class BrresTexCoordGenerators
                     {
                         int register = address + j;
                         uint value = U32(bytes, (int)p + 5 + j * 4);
+                        if (register is >= 0x0000 and <= 0x03FF) matrixWords[register] = value;
                         if (register is >= 0x1040 and <= 0x1047) info[register - 0x1040] = value;
                         if (register is >= 0x1050 and <= 0x1057) dual[register - 0x1050] = value;
                     }
@@ -109,6 +123,11 @@ internal static class BrresTexCoordGenerators
                 // Other selectors or nonidentity matrices remain unsupported.
                 bool verifiedIdentityPost = bytes[(int)effect + 3] != 0 &&
                     IsIdentity3x4(bytes, (int)effect + 4);
+                // TexMtxEffect: SCN0 camera/light refs, map mode, identity flag,
+                // then an authored 3x4 effect matrix (NOT the runtime XF matrix).
+                float[] authored = new float[12];
+                for (int k = 0; k < 12; k++)
+                    authored[k] = F32(bytes, (int)effect + 4 + k * 4);
                 generators[id] = new Generator(id, sourceRow, uv,
                     (int)((flags >> 4) & 7), (int)((flags >> 1) & 1),
                     (int)((flags >> 2) & 3), ((dualFlags >> 8) & 0xFF) != 0,
@@ -116,10 +135,32 @@ internal static class BrresTexCoordGenerators
                     F32(bytes, (int)srt), F32(bytes, (int)srt + 4), F32(bytes, (int)srt + 8),
                     F32(bytes, (int)srt + 12), F32(bytes, (int)srt + 16),
                     bytes[(int)effect + 3] != 0, bytes[(int)effect + 2],
-                    verifiedIdentityPost);
+                    verifiedIdentityPost)
+                {
+                    CameraReference = unchecked((sbyte)bytes[(int)effect]),
+                    LightReference = unchecked((sbyte)bytes[(int)effect + 1]),
+                    AuthoredEffectMatrix = authored
+                };
+            }
+            // Only fully present consecutive matrix rows are admitted. The active
+            // texgen's matrix selector is a separate piece of GX state and
+            // must not be inferred from DUALTEX or the material layer index.
+            Dictionary<int, float[]> completeMatrices = [];
+            foreach (int first in matrixWords.Keys.OrderBy(x => x))
+            {
+                if (first > 0x03F4 || !Enumerable.Range(0, 12).All(j => matrixWords.ContainsKey(first + j)))
+                    continue;
+                var values = Enumerable.Range(0, 12)
+                    .Select(j => BitConverter.Int32BitsToSingle(unchecked((int)matrixWords[first + j])))
+                    .ToArray();
+                if (values.All(float.IsFinite)) completeMatrices[first] = values;
             }
             result[index] = new Material(index, layers, generators,
-                layers > 0 && generators.Count < layers ? $"XF texgens resolved {generators.Count}/{layers}" : null);
+                layers > 0 && generators.Count < layers ? $"XF texgens resolved {generators.Count}/{layers}" : null)
+            {
+                ExplicitXfMatrixWords = matrixWords,
+                ExplicitXfMatrices = completeMatrices
+            };
         }
         return result;
     }
