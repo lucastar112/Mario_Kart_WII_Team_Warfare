@@ -367,6 +367,154 @@ internal sealed class BrresOpenGlRenderer
         }
     }
 
+
+    // Step 6f Pass 6a: audit what is actually uploaded and selected by each
+    // consolidated mode. Diagnostic only: never affects draw selection or GPU state.
+    // A per-material count cannot prove per-polygon correspondence, so the report
+    // explicitly calls its conclusions *coverage estimates*.
+    private void ExportTevDrawPathAudit(BrresModelReader.DecodeResult model)
+    {
+        try
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "DebugManager-TEV-Validation");
+            Directory.CreateDirectory(directory);
+
+            var materialRows = new List<object>();
+            var csv = new List<string> {
+                "material,objects,surfaces,declaredStages,parsedStages,textureDisabled,indirect,projected," +
+                "mode19Batches,mode23CompleteBatches,mode19FullStageBatches,mode23FullStageBatches," +
+                "mode19PotentiallyTruncated,mode23EligibleFullCoverage,approximateUv,frozenProjection,issues"
+            };
+            int mode19Estimated = 0, mode23Estimated = 0, legacyTruncated = 0;
+            int stageComplete19 = 0, stageComplete23 = 0;
+            int missingTextures = 0, missingTexgens = 0;
+            foreach (var plan in _generalTevPlans)
+            {
+                int materialId = plan.MaterialIndex;
+                int[] objects = model.SurfaceMaterials
+                    .Where(pair => pair.Value.MaterialIndex == materialId)
+                    .Select(pair => pair.Key).Distinct().OrderBy(value => value).ToArray();
+                var objectSet = objects.ToHashSet();
+                int surfaceCount = model.PolygonSurfaces.Count(s => objectSet.Contains(s.ObjectIndex));
+
+                var gpu = _gpuTevMaterials.Where(g => g.Batch.MaterialIndex == materialId).ToArray();
+                var legacy = gpu.Where(g => g.ShaderMode != CompleteTevStagesMode).ToArray();
+                var full = gpu.Where(g => g.ShaderMode == CompleteTevStagesMode).ToArray();
+                // The 19-path includes all legacy TEV GPU paths, not just regular.
+                int stageCount = plan.Stages.Length;
+                bool LegacyComplete(TevInputBatch batch) =>
+                    stageCount > 0 && plan.TextureDisabledStageCount == 0 &&
+                    batch.StageCount == stageCount &&
+                    (stageCount <= 2 || batch.CompleteStages?.Length == stageCount);
+                bool FullComplete(TevInputBatch batch) =>
+                    batch.CompleteStages?.Length == stageCount && stageCount > 0 &&
+                    batch.StageSamplerSlots?.Length == stageCount;
+
+                int legacyStageReady = legacy.Count(g => LegacyComplete(g.Batch));
+                int fullStageReady = full.Count(g => FullComplete(g.Batch));
+                bool legacyCovered = surfaceCount > 0 && legacy.Length >= surfaceCount;
+                // Full-stage batches suppress legacy only when every surface is covered.
+                bool fullReplace = surfaceCount > 0 && full.Length >= surfaceCount;
+                bool mode23Covered = legacyCovered || fullReplace;
+                bool truncated = legacy.Any(g => !LegacyComplete(g.Batch));
+                bool approximatedUv = gpu.Any(g => g.Batch.ApproximateRegularUv);
+                bool frozenProjection = gpu.Any(g => g.Batch.ProjectedStage1);
+                int missingTex = plan.Stages.Count(st => st.Equation.TextureEnabled && !st.TextureAvailable);
+                int missingGen = plan.Stages.Count(st => st.Equation.TextureEnabled && !st.TexgenAvailable);
+                var issues = new List<string>();
+                if (plan.Issue is not null) issues.Add(plan.Issue);
+                if (missingTex > 0) issues.Add("missing texture");
+                if (missingGen > 0) issues.Add("missing texgen");
+                if (truncated) issues.Add("legacy incomplete stage sequence");
+                if (plan.RequiresIndirect) issues.Add("indirect semantics not verified");
+                if (plan.RequiresProjection) issues.Add("projected matrix may be runtime-dependent");
+                if (approximatedUv) issues.Add("approximate regular UV");
+                if (frozenProjection) issues.Add("frozen FIFO projection");
+                if (!mode23Covered) issues.Add("no full per-surface batch-count coverage");
+
+                if (legacyCovered) mode19Estimated++;
+                if (mode23Covered) mode23Estimated++;
+                if (truncated) legacyTruncated++;
+                if (legacyStageReady >= surfaceCount && surfaceCount > 0) stageComplete19++;
+                if ((fullReplace && fullStageReady >= surfaceCount) ||
+                    (!fullReplace && legacyStageReady >= surfaceCount && surfaceCount > 0))
+                    stageComplete23++;
+                missingTextures += missingTex;
+                missingTexgens += missingGen;
+
+                materialRows.Add(new {
+                    materialIndex = materialId, objectIndices = objects, surfaces = surfaceCount,
+                    declaredStages = plan.DeclaredStageCount, parsedStages = stageCount,
+                    textureDisabledStages = plan.TextureDisabledStageCount,
+                    indirect = plan.RequiresIndirect, projected = plan.RequiresProjection,
+                    mode19Batches = legacy.Length, mode23CompleteBatches = full.Length,
+                    mode19StageCompleteBatches = legacyStageReady,
+                    mode23StageCompleteBatches = fullStageReady,
+                    mode19PotentiallyTruncated = truncated,
+                    mode23FullReplacement = fullReplace,
+                    mode19CoverageEstimate = legacyCovered,
+                    mode23CoverageEstimate = mode23Covered,
+                    approximateUv = approximatedUv, frozenProjection,
+                    issues = issues.ToArray()
+                });
+                static string Escape(string text) => "\"" + text.Replace("\"", "\"\"") + "\"";
+                string[] fields = [materialId.ToString(CultureInfo.InvariantCulture),
+                    string.Join(";", objects), surfaceCount.ToString(CultureInfo.InvariantCulture),
+                    plan.DeclaredStageCount.ToString(CultureInfo.InvariantCulture),
+                    stageCount.ToString(CultureInfo.InvariantCulture),
+                    plan.TextureDisabledStageCount.ToString(CultureInfo.InvariantCulture),
+                    plan.RequiresIndirect.ToString(), plan.RequiresProjection.ToString(),
+                    legacy.Length.ToString(CultureInfo.InvariantCulture),
+                    full.Length.ToString(CultureInfo.InvariantCulture),
+                    legacyStageReady.ToString(CultureInfo.InvariantCulture),
+                    fullStageReady.ToString(CultureInfo.InvariantCulture),
+                    truncated.ToString(), mode23Covered.ToString(),
+                    approximatedUv.ToString(), frozenProjection.ToString(),
+                    string.Join(";", issues)];
+                csv.Add(string.Join(",", fields.Select(Escape)));
+            }
+
+            // Signature algorithm matches Pass 5d, allowing offline archive joins.
+            string stageSignature = string.Join("|", _generalTevPlans.Select(p =>
+                $"{p.MaterialIndex}:{p.DeclaredStageCount}:" +
+                string.Join(";", p.Stages.Select(st =>
+                    $"{st.Equation.Index}/{st.Equation.TextureMap}/{st.Equation.TexCoord}/" +
+                    $"{st.Equation.ColorBias}/{st.Equation.AlphaBias}/" +
+                    $"{st.Equation.RasterSwap}/{st.Equation.TextureSwap}/{st.TextureName}"))));
+            string signature = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(stageSignature)).AsSpan(0, 6));
+            string id = $"{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}_{signature}";
+            string path = Path.Combine(directory, id + "_draw_audit.json");
+            string csvPath = Path.Combine(directory, id + "_draw_audit.csv");
+            var summary = new {
+                schema = "DebugManager.TevDrawAudit.v1", modelSignature = signature,
+                materials = _generalTevPlans.Length, surfaces = model.PolygonSurfaces.Count,
+                mode19CoveredMaterialEstimate = mode19Estimated,
+                mode23CoveredMaterialEstimate = mode23Estimated,
+                mode19StageCompleteMaterialEstimate = stageComplete19,
+                mode23StageCompleteMaterialEstimate = stageComplete23,
+                potentiallyTruncatedLegacyMaterials = legacyTruncated,
+                missingTextureStageReferences = missingTextures,
+                missingTexgenStageReferences = missingTexgens,
+                warning = "Per-material GPU batch counts are estimates; no draw-vertex equivalence, GX precision, indirect or projected accuracy is asserted"
+            };
+            File.WriteAllText(path, JsonSerializer.Serialize(new { summary, materials = materialRows },
+                new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllLines(csvPath, csv);
+            WriteDiagnostic($"Step 6f Pass 6a TEV draw audit: model={signature}, " +
+                $"mode19={mode19Estimated}/{_generalTevPlans.Length}, " +
+                $"mode23={mode23Estimated}/{_generalTevPlans.Length}, " +
+                $"stageComplete19={stageComplete19}, stageComplete23={stageComplete23}, " +
+                $"legacyTruncated={legacyTruncated}, missingTextures={missingTextures}, " +
+                $"missingTexgens={missingTexgens}; JSON={path}; CSV={csvPath}; " +
+                "counts are conservative estimates, not a GX-exactness claim.");
+        }
+        catch (Exception ex)
+        {
+            WriteDiagnostic($"Step 6f Pass 6a audit FAILED: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
     // Step 6f Pass 5d: per-model, CPU-only cross-track inventory. This runs once
     // when a new model is uploaded, never during the per-frame draw loop.
     // The report's fingerprint is a *resource signature*, not a verified course name.
@@ -871,6 +1019,92 @@ internal sealed class BrresOpenGlRenderer
 
 
 
+    // Step 6f / custom-course world alignment: MDL0 bone transform is not
+    // baked into the decoded raw BRRES vertex positions. Only a single root
+    // bone can be applied safely without skinning / matrix-palette support.
+    internal readonly record struct RootBoneTransform(GlVector3 Scale, GlVector3 RotationDegrees,
+        GlVector3 Translation)
+    {
+        public bool IsIdentity =>
+            (Scale - GlVector3.One).LengthSquared < 0.000001f &&
+            RotationDegrees.LengthSquared < 0.000001f && Translation.LengthSquared < 0.000001f;
+    }
+
+    private RootBoneTransform? _rootBoneTransform;
+    public void SetRootBoneTransform(RootBoneTransform? transform) => _rootBoneTransform = transform;
+
+    internal static bool TryReadSingleRootBoneTransform(byte[]? brres, out RootBoneTransform root)
+    {
+        root = default;
+        if (brres is null || brres.Length < 0x80) return false;
+        try
+        {
+            ReadOnlySpan<byte> data = brres;
+            static uint U32(ReadOnlySpan<byte> src, int offset) =>
+                System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(src.Slice(offset, 4));
+            static float F32(ReadOnlySpan<byte> src, int offset) =>
+                BitConverter.Int32BitsToSingle(System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(src.Slice(offset, 4)));
+            int mdl = -1;
+            for (int i = 0; i <= data.Length - 4; i++)
+            {
+                if (data[i] == (byte)'M' && data[i+1] == (byte)'D' &&
+                    data[i+2] == (byte)'L' && data[i+3] == (byte)'0') { mdl = i; break; }
+            }
+            if (mdl < 0 || mdl + 0x60 > data.Length) return false;
+            uint length = U32(data, mdl + 4);
+            if (length < 0x100 || length > data.Length - mdl || U32(data, mdl + 8) != 11) return false;
+            uint groupRel = U32(data, mdl + 0x14); // MDL0 bone index group, section 1
+            if (groupRel < 0x4C || groupRel > length - 0x28) return false;
+            int group = mdl + checked((int)groupRel);
+            if (U32(data, group + 4) != 1) return false; // Multi-bone models need matrix-palette decoding.
+            uint relativeRecord = U32(data, group + 8 + 16 + 12);
+            if (relativeRecord > length || (long)group + relativeRecord + 0x44 > mdl + length) return false;
+            int bone = group + checked((int)relativeRecord);
+            var scale = new GlVector3(F32(data,bone+0x20), F32(data,bone+0x24), F32(data,bone+0x28));
+            var rotation = new GlVector3(F32(data,bone+0x2C), F32(data,bone+0x30), F32(data,bone+0x34));
+            var translation = new GlVector3(F32(data,bone+0x38), F32(data,bone+0x3C), F32(data,bone+0x40));
+            if (!float.IsFinite(scale.X) || !float.IsFinite(scale.Y) || !float.IsFinite(scale.Z) ||
+                !float.IsFinite(rotation.X) || !float.IsFinite(rotation.Y) || !float.IsFinite(rotation.Z) ||
+                !float.IsFinite(translation.X) || !float.IsFinite(translation.Y) || !float.IsFinite(translation.Z) ||
+                scale.X <= 0 || scale.Y <= 0 || scale.Z <= 0 ||
+                scale.X > 10000 || scale.Y > 10000 || scale.Z > 10000 ||
+                rotation.Length > 10000 || translation.Length > 10000000) return false;
+            root = new RootBoneTransform(scale,rotation,translation);
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or OverflowException or IndexOutOfRangeException)
+        {
+            return false; // Bad or unsupported BRRES: retain the previously working raw geometry.
+        }
+    }
+
+    private Matrix4 MakeModelToWorldMatrix(BrresModelReader.DecodeResult model)
+    {
+        if (_rootBoneTransform is not { } root || root.IsIdentity) return Matrix4.Identity;
+        var s = root.Scale;
+        var r = root.RotationDegrees;
+        // MDL0 SRT uses model-local XYZ -> game-world XYZ; OpenTK uses row vectors.
+        Matrix4 matrix = Matrix4.CreateScale(s) *
+            Matrix4.CreateRotationX(MathHelper.DegreesToRadians(r.X)) *
+            Matrix4.CreateRotationY(MathHelper.DegreesToRadians(r.Y)) *
+            Matrix4.CreateRotationZ(MathHelper.DegreesToRadians(r.Z)) *
+            Matrix4.CreateTranslation(root.Translation);
+        // BRRES vertices were uploaded as (raw - rawBoundingCenter) * 0.001.
+        // KMP/KCL/player vertices use the same rawBoundingCenter. Convert the
+        // world-space translation accordingly, without modifying those overlays.
+        var center = new GlVector3(
+            (float)((model.Minimum.X + model.Maximum.X) * 0.5),
+            (float)((model.Minimum.Y + model.Maximum.Y) * 0.5),
+            (float)((model.Minimum.Z + model.Maximum.Z) * 0.5));
+        GlVector3 translationOffset = (GlVector3.TransformPosition(center, matrix) - center) * 0.001f;
+        // In the recentered 0.001-scaled coordinate system, linear SRT is unchanged.
+        return Matrix4.CreateScale(s) *
+            Matrix4.CreateRotationX(MathHelper.DegreesToRadians(r.X)) *
+            Matrix4.CreateRotationY(MathHelper.DegreesToRadians(r.Y)) *
+            Matrix4.CreateRotationZ(MathHelper.DegreesToRadians(r.Z)) *
+            Matrix4.CreateTranslation(translationOffset);
+    }
+
     public void SetModel(BrresModelReader.DecodeResult? model) => _requested = model;
 
     public void Draw(BrresModelReader.DecodeResult? model, int width, int height,
@@ -897,6 +1131,7 @@ internal sealed class BrresOpenGlRenderer
                 BuildMaterialDrawPipeline();
                 LogConsolidatedTevCoverage(_requested);
                 ExportCrossTrackTevReport(_requested);
+                ExportTevDrawPathAudit(_requested);
             }
             _uploaded = _requested;
             ReleaseKclOverlay();
@@ -942,9 +1177,10 @@ internal sealed class BrresOpenGlRenderer
         // GLSL uses column vectors, so upload the transposed matrix representation.
         // OpenTK stores matrices row-major; transpose=false makes OpenGL interpret
         // these bytes as column-major, yielding (view * projection)^T in GLSL.
-        Matrix4 combined = view * projection;
+        Matrix4 combined = view * projection; // game-world: KMP, KCL, player icons
+        Matrix4 brresCombined = MakeModelToWorldMatrix(_requested) * combined;
         GL.UseProgram(_program);
-        GL.UniformMatrix4(_matrixLocation, false, ref combined);
+        GL.UniformMatrix4(_matrixLocation, false, ref brresCombined);
         GL.Uniform1(_samplerLocation, 0);
         GL.ActiveTexture(TextureUnit.Texture0);
         // Opaque and alpha-cutout geometry writes depth as usual.
@@ -971,71 +1207,71 @@ internal sealed class BrresOpenGlRenderer
         switch (TevInputPreviewMode)
         {
             case >= 1 and <= 3:
-                DrawTevInputPreview(combined);
+                DrawTevInputPreview(brresCombined);
                 break;
             case 4 or 5:
-                DrawIndirectPreview(combined);
+                DrawIndirectPreview(brresCombined);
                 break;
             case IndirectTevMode:
             case ProjectedTevMode:
-                DrawTevInputPreview(combined);
+                DrawTevInputPreview(brresCombined);
                 break;
             case 7:
-                DrawProjectedPreview(combined);
+                DrawProjectedPreview(brresCombined);
                 break;
             case 8:
-                DrawFifoProjectionPreview(combined);
+                DrawFifoProjectionPreview(brresCombined);
                 break;
             case 9:
-                DrawFifoProjectionPreview(combined, _fifoTexgenOrderBatches);
+                DrawFifoProjectionPreview(brresCombined, _fifoTexgenOrderBatches);
                 break;
             case 10 or 11:
-                DrawFifoProjectiveTest(combined);
+                DrawFifoProjectiveTest(brresCombined);
                 break;
             case ConsolidatedTevMode:
-                DrawConsolidatedTevPreview(combined);
+                DrawConsolidatedTevPreview(brresCombined);
                 break;
             case ConsolidatedWithoutRegularMode:
-                DrawConsolidatedTevPreview(combined, includeRegular: false);
+                DrawConsolidatedTevPreview(brresCombined, includeRegular: false);
                 break;
             case ConsolidatedRegularNoOffsetMode:
-                DrawConsolidatedTevPreview(combined, regularPolygonOffset: false);
+                DrawConsolidatedTevPreview(brresCombined, regularPolygonOffset: false);
                 break;
             case ConsolidatedRegularAlphaBlendMode:
-                DrawConsolidatedTevPreview(combined, regularBlend: RegularTevBlend.SourceAlpha);
+                DrawConsolidatedTevPreview(brresCombined, regularBlend: RegularTevBlend.SourceAlpha);
                 break;
             case ConsolidatedRegularHalfBlendMode:
-                DrawConsolidatedTevPreview(combined, regularBlend: RegularTevBlend.HalfOpacity);
+                DrawConsolidatedTevPreview(brresCombined, regularBlend: RegularTevBlend.HalfOpacity);
                 break;
             case SingleStageTevTestMode:
-                DrawTevInputPreview(combined, GetTevBatches(SingleStageTevTestMode), RegularTevMode);
+                DrawTevInputPreview(brresCombined, GetTevBatches(SingleStageTevTestMode), RegularTevMode);
                 break;
             case SingleStageWithConsolidatedMode:
                 // Step 6f Pass 3: same draw order as the visually validated Pass 2 mode 19.
-                DrawConsolidatedTevPreview(combined, includeSingleStage: true);
+                DrawConsolidatedTevPreview(brresCombined, includeSingleStage: true);
                 break;
             case ExtendedTevCompareMode:
                 // Pass 4 A/B: same four passes as mode 19, with compare operations.
-                DrawConsolidatedTevPreview(combined, includeSingleStage: true, extendedCompare: true);
+                DrawConsolidatedTevPreview(brresCombined, includeSingleStage: true, extendedCompare: true);
                 break;
             case ExtendedTevSwapMode:
                 // Pass 5a: same draw order, comparisons and GX swap tables where
                 // all KSEL source registers were actually decoded.
-                DrawConsolidatedTevPreview(combined, includeSingleStage: true,
+                DrawConsolidatedTevPreview(brresCombined, includeSingleStage: true,
                     extendedCompare: true, extendedSwap: true);
                 break;
             case CompleteTevStagesMode:
                 // Pass 5e: mode 19 plus newly validated full-stage materials.
                 // Pre-existing batches are suppressed only when replaced by a
                 // complete-sequence batch; other modes retain their original draws.
-                DrawConsolidatedTevPreview(combined, includeSingleStage: true,
+                DrawConsolidatedTevPreview(brresCombined, includeSingleStage: true,
                     extendedCompare: true, extendedSwap: true,
                     includeCompleteStages: true);
                 break;
             case ExtendedTevPrecisionMode:
                 // Pass 5b: opt-in signed 11-bit register writeback quantization.
                 // Preserve the 24-batch draw order and all previous comparison modes.
-                DrawConsolidatedTevPreview(combined, includeSingleStage: true,
+                DrawConsolidatedTevPreview(brresCombined, includeSingleStage: true,
                     extendedCompare: true, extendedSwap: true, extendedPrecision: true);
                 break;
         }

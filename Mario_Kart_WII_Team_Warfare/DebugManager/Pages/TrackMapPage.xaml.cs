@@ -353,12 +353,19 @@ public partial class TrackMapPage : Page
             int itemRouteCount = archive.Kmp.FindSection("ITPT")?.EntryCount ?? 0;
             string modelSummary = "BRRES: course_model.brres not found";
             BrresModelReader.DecodeResult? courseModel = null;
+            BrresOpenGlRenderer.RootBoneTransform? rootBoneTransform = null;
             if (archive.ArchiveFiles.Contains("course_model.brres", StringComparer.OrdinalIgnoreCase))
             {
                 try
                 {
                     SzsArchiveReader modelArchive = SzsArchiveReader.Open(File.ReadAllBytes(szsPath));
-                    courseModel = BrresModelReader.Decode(modelArchive.ReadFile("course_model.brres"));
+                    byte[] brresBytes = modelArchive.ReadFile("course_model.brres");
+                    courseModel = BrresModelReader.Decode(brresBytes);
+                    if (BrresOpenGlRenderer.TryReadSingleRootBoneTransform(brresBytes, out var root) && !root.IsIdentity)
+                    {
+                        rootBoneTransform = root;
+                        Console.WriteLine($"[TrackMap] MDL0 root transform: S={root.Scale}, R={root.RotationDegrees}, T={root.Translation}");
+                    }
                     modelSummary = courseModel.Summary;
                 }
                 catch (Exception modelException)
@@ -388,6 +395,7 @@ public partial class TrackMapPage : Page
                 Kmp = archive.Kmp,
                 Lex = archive.Lex,
                 CourseModel = courseModel,
+                CourseRootTransform = rootBoneTransform,
                 Summary = $"KMP: {archive.Kmp.Sections.Count} sections · {checkpointCount} checkpoints · {objectCount} objects · {cpuRouteCount} CPU points · {itemRouteCount} item points · LEX: {archive.Lex?.Sections.Count ?? 0} sections · {modelSummary}",
                 Waypoints = []
             };
@@ -835,6 +843,7 @@ public partial class TrackMapPage : Page
     {
         TrackViewport3D.Children.Clear();
         _openGlRenderer.SetModel(_track?.CourseModel);
+        _openGlRenderer.SetRootBoneTransform(_track?.CourseRootTransform);
         if (_track?.CourseModel is not { } model)
         {
             StatusText.Text = "3D model unavailable · " + (_track?.Summary ?? "No track loaded");
@@ -851,6 +860,14 @@ public partial class TrackMapPage : Page
 
         // Convert the game's world-unit scale to convenient WPF units and center the model.
         Transform3DGroup transform = new();
+        if (_track?.CourseRootTransform is { } root)
+        {
+            transform.Children.Add(new ScaleTransform3D(root.Scale.X, root.Scale.Y, root.Scale.Z));
+            transform.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(new Vector3D(1, 0, 0), root.RotationDegrees.X)));
+            transform.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(new Vector3D(0, 1, 0), root.RotationDegrees.Y)));
+            transform.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(new Vector3D(0, 0, 1), root.RotationDegrees.Z)));
+            transform.Children.Add(new TranslateTransform3D(root.Translation.X, root.Translation.Y, root.Translation.Z));
+        }
         transform.Children.Add(new TranslateTransform3D(-cx, -cy, -cz));
         transform.Children.Add(new ScaleTransform3D(0.001, 0.001, 0.001));
         Material material = new DiffuseMaterial(new SolidColorBrush(Color.FromRgb(155, 163, 168)));
@@ -877,6 +894,28 @@ public partial class TrackMapPage : Page
         _cameraYaw = -35;
         _cameraPitch = 28;
         _cameraTarget = new Point3D(0, 0, 0);
+        // A custom MDL0 root can scale geometry by 100x. Frame the playable
+        // KMP route, rather than untransformed vertices or enormous sky/backdrop geometry.
+        if (_track?.CourseRootTransform is { } nonIdentity && !nonIdentity.IsIdentity)
+        {
+            var route = BuildKmp3dLines(_track.Kmp)?.Where(line => line.Layer is 1 or 2 or 4).ToArray() ?? [];
+            if (route.Length > 0)
+            {
+                double loX = route.Min(l => Math.Min(l.X1, l.X2));
+                double hiX = route.Max(l => Math.Max(l.X1, l.X2));
+                double loY = route.Min(l => Math.Min(l.Y1, l.Y2));
+                double hiY = route.Max(l => Math.Max(l.Y1, l.Y2));
+                double loZ = route.Min(l => Math.Min(l.Z1, l.Z2));
+                double hiZ = route.Max(l => Math.Max(l.Z1, l.Z2));
+                double routeSpan = Math.Max(hiX-loX, Math.Max(hiY-loY, hiZ-loZ));
+                if (double.IsFinite(routeSpan) && routeSpan > 0 && routeSpan < 10000000)
+                {
+                    _cameraDistance = Math.Max(8, routeSpan * 0.001 * 1.6);
+                    _cameraTarget = new Point3D(((loX+hiX)*0.5-cx)*0.001,
+                        ((loY+hiY)*0.5-cy)*0.001, ((loZ+hiZ)*0.5-cz)*0.001);
+                }
+            }
+        }
         Update3DCamera();
         StatusText.Text = model.Summary;
         StatusText.ToolTip = string.Join(Environment.NewLine, new[]
@@ -1361,6 +1400,7 @@ public partial class TrackMapPage : Page
         public KmpDocument? Kmp { get; set; }
         public LexDocument? Lex { get; set; }
         public BrresModelReader.DecodeResult? CourseModel { get; set; }
+        public BrresOpenGlRenderer.RootBoneTransform? CourseRootTransform { get; set; }
         public double CanvasWidth { get; set; } = MapWidth;
         public double CanvasHeight { get; set; } = MapHeight;
         public List<TrackWaypoint> Waypoints { get; set; } = [];
