@@ -39,7 +39,7 @@
                 <TextBlock Text="GameManager.Tools · Library Validation" Foreground="#66D9EF"
                            FontSize="25" FontWeight="Bold" VerticalAlignment="Center"/>
             </DockPanel>
-            <TextBlock Text="Read an actual SZS archive using the portable KMP parser and all three BRRES import profiles. No OpenGL context or Dolphin connection required."
+            <TextBlock Text="Read an actual SZS archive using portable KMP, KCL and all three BRRES import profiles. No OpenGL context or Dolphin connection required."
                        Foreground="#ACBBCB" Margin="0,8,0,12"/>
             <DockPanel LastChildFill="True" Margin="0,0,0,8">
                 <Button x:Name="RunButton" Content="Run validation" Click="Run_Click" DockPanel.Dock="Right"/>
@@ -76,6 +76,60 @@
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <TextBlock x:Name="KmpSummaryText" Grid.Row="0" Margin="0,0,0,10" Foreground="#ACBBCB"/>
                     <DataGrid x:Name="KmpGrid" Grid.Row="1"/>
+                </Grid>
+            </TabItem>
+            <TabItem Header="KCL collision data">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <StackPanel Margin="0,0,0,10">
+                        <TextBlock x:Name="KclSummaryText" Foreground="#ACBBCB"/>
+                        <TextBlock Text="Phase 4: filter by KCL base type (low 5 bits); full 16-bit flags retain their individual colors. Drag to orbit; wheel to zoom."
+                                   Foreground="#ACBBCB" Margin="0,5,0,0"/>
+                        <CheckBox x:Name="KclColorModeBox" Content="Color by collision ID (uncheck for gray)" IsChecked="True"
+                                  Foreground="#DCE7F3" Margin="0,7,0,0"
+                                  Checked="KclColorMode_Changed" Unchecked="KclColorMode_Changed"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,4">
+                            <TextBlock Text="Base collision types:" Foreground="#DCE7F3" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                            <Button Content="All" Click="KclFilterAll_Click" Padding="10,3" Margin="0,0,5,0"/>
+                            <Button Content="None" Click="KclFilterNone_Click" Padding="10,3" Margin="0,0,5,0"/>
+                            <Button Content="Invert" Click="KclFilterInvert_Click" Padding="10,3"/>
+                        </StackPanel>
+                        <TextBlock Text="Group presets (select only this group):" Foreground="#DCE7F3" Margin="0,5,0,4"/>
+                        <WrapPanel x:Name="KclGroupPresetPanel" Margin="0,0,0,5"/>
+                        <ScrollViewer MaxHeight="105" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <WrapPanel x:Name="KclTypeFilterPanel"/>
+                        </ScrollViewer>
+                    </StackPanel>
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Border BorderBrush="#394B61" BorderThickness="1" Background="#111820" Margin="0,0,8,0">
+                            <Grid>
+                                <Viewport3D x:Name="KclViewport" ClipToBounds="True"
+                                            MouseLeftButtonDown="KclViewport_MouseLeftButtonDown"
+                                            MouseLeftButtonUp="KclViewport_MouseLeftButtonUp"
+                                            MouseMove="KclViewport_MouseMove"
+                                            MouseWheel="KclViewport_MouseWheel">
+                                    <Viewport3D.Camera>
+                                        <PerspectiveCamera x:Name="KclCamera" FieldOfView="50" NearPlaneDistance="0.1" FarPlaneDistance="10000000"/>
+                                    </Viewport3D.Camera>
+                                    <ModelVisual3D>
+                                        <ModelVisual3D.Content>
+                                            <Model3DGroup>
+                                                <AmbientLight Color="#888888"/>
+                                                <DirectionalLight Color="#FFFFFF" Direction="-0.4,-1,-0.6"/>
+                                                <DirectionalLight Color="#666666" Direction="0.6,0.5,0.3"/>
+                                            </Model3DGroup>
+                                        </ModelVisual3D.Content>
+                                    </ModelVisual3D>
+                                    <ModelVisual3D x:Name="KclModelVisual"/>
+                                </Viewport3D>
+                                <TextBlock x:Name="KclViewportHint" Text="Run validation to load the KCL mesh"
+                                           Foreground="#D8E2EC" Background="#88111820" Padding="8"
+                                           HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8"/>
+                            </Grid>
+                        </Border>
+                        <DataGrid x:Name="KclGrid" Grid.Column="1"/>
+                    </Grid>
                 </Grid>
             </TabItem>
             <TabItem Header="TEV metadata">

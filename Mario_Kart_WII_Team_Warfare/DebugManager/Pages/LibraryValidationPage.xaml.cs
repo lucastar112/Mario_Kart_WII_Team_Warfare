@@ -6,6 +6,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Media.Media3D;
+using System.Windows.Input;
 using Microsoft.Win32;
 using Tools = GameManager.Tools.TrackFormats;
 // Explicit WPF/Win32 aliases: DebugManager also enables Windows Forms.
@@ -17,6 +19,8 @@ using Point = System.Windows.Point;
 using Pen = System.Windows.Media.Pen;
 using Brushes = System.Windows.Media.Brushes;
 using FlowDirection = System.Windows.FlowDirection;
+using Button = System.Windows.Controls.Button;
+using CheckBox = System.Windows.Controls.CheckBox;
 
 
 namespace DebugManager.Pages;
@@ -29,6 +33,17 @@ public partial class LibraryValidationPage : Page
 {
     private readonly MainWindow _mainWindow;
     private bool _running;
+    private Point _kclDragPoint;
+    private bool _kclDragging;
+    private double _kclYaw = 0.65, _kclPitch = 0.85, _kclDistance = 100;
+    private Point3D _kclCenter;
+    private double _kclRadius = 1;
+    private IReadOnlyList<Tools.KclTriangle>? _kclLoadedTriangles;
+    private bool _kclColorById = true;
+    private readonly HashSet<int> _kclVisibleTypes = new();
+    private bool _kclUpdatingFilters;
+
+
 
     public LibraryValidationPage(MainWindow mainWindow)
     {
@@ -71,9 +86,13 @@ public partial class LibraryValidationPage : Page
         }
         _running = true;
         RunButton.IsEnabled = false;
-        StatusText.Text = "Reading KMP and decoding three BRRES profiles...";
+        StatusText.Text = "Reading KMP, KCL and three BRRES profiles...";
         ProfileGrid.ItemsSource = null;
         KmpGrid.ItemsSource = null;
+        KclGrid.ItemsSource = null;
+        KclModelVisual.Content = null;
+        _kclLoadedTriangles = null;
+        KclViewportHint.Text = "Loading collision geometry...";
         TevGrid.ItemsSource = null;
         GeometryPreview.Source = null;
         TexturePreview.Source = null;
@@ -88,6 +107,15 @@ public partial class LibraryValidationPage : Page
             KmpGrid.ItemsSource = result.KmpSections;
             TevGrid.ItemsSource = result.TevStages;
             KmpSummaryText.Text = result.KmpSummary;
+            KclSummaryText.Text = result.KclSummary;
+            KclGrid.ItemsSource = result.KclFlags;
+            if (result.KclTriangles is { Count: > 0 })
+            {
+                PopulateKclTypeFilters(result.KclTriangles);
+                ShowKclTriangles(result.KclTriangles);
+            }
+            else
+                KclViewportHint.Text = "No decoded KCL triangles available";
             ReportBox.Text = result.Report;
             TextureCaption.Text = result.TextureName;
             if (result.Mesh is not null)
@@ -136,7 +164,7 @@ public partial class LibraryValidationPage : Page
         var watch = Stopwatch.StartNew();
         var result = new ValidationResult();
         var log = new StringBuilder();
-        log.AppendLine("GameManager.Tools — portable KMP / BRRES validation");
+        log.AppendLine("GameManager.Tools — portable KMP / KCL / BRRES validation");
         log.AppendLine("Archive: " + Path.GetFullPath(path));
         log.AppendLine("All parsing is performed by GameManager.Tools, not DebugManager.Rendering.");
         log.AppendLine();
@@ -177,6 +205,56 @@ public partial class LibraryValidationPage : Page
         {
             result.KmpSummary = "KMP: FAILED — " + ex.Message;
             log.AppendLine("KMP: FAILED: " + ex);
+        }
+        log.AppendLine();
+
+        // Phase 1 KCL: parse raw vectors, 1-based prisms, collision flags and octree.
+        // Geometry decoding verifies the data but is NOT displayed in this phase.
+        if (!archive.ContainsFile("course.kcl"))
+        {
+            result.KclSummary = "course.kcl not present — KCL validation skipped";
+            log.AppendLine("KCL: course.kcl not present (SKIPPED)");
+        }
+        else
+        {
+            try
+            {
+                byte[] kclBytes = archive.ReadFile("course.kcl");
+                Tools.KclDocument kcl = Tools.KclFileReader.Read(kclBytes);
+                Tools.KclTriangleDecodeResult decoded = Tools.KclTriangleDecoder.Decode(kcl);
+                result.KclTriangles = decoded.Triangles;
+                result.KclPrisms = kcl.PrismCount;
+                result.KclOk = kcl.PrismCount > 0 && decoded.Triangles.Count > 0;
+                result.KclSummary = $"{kcl.PrismCount:N0} prisms · {decoded.Triangles.Count:N0} decoded triangles · " +
+                    $"{kcl.CollisionFlagCounts.Count} full flags · {kcl.CollisionTypeCounts.Count} base types";
+                log.AppendLine($"KCL: {(result.KclOk ? "PASS" : "CHECK")}; bytes={kclBytes.Length:N0}; " +
+                    $"positions={kcl.Positions.Count:N0}; normals={kcl.Normals.Count:N0}; " +
+                    $"prisms={kcl.PrismCount:N0}; reconstructed={decoded.Triangles.Count:N0}; " +
+                    $"degenerate={decoded.DegeneratePrismIds.Count}; " +
+                    $"octreeRoots={kcl.Octree.RootEntryCount}; branchTables={kcl.Octree.BranchTables}; " +
+                    $"leafLists={kcl.Octree.LeafLists}; referencedPrisms={kcl.Octree.ReferencedPrismIds.Count}; " +
+                    $"invalidLeafReferences={kcl.Octree.InvalidReferencedPrismIds.Count}; warnings={kcl.Warnings.Count}");
+                log.AppendLine($"  header: thickness={kcl.Header.PrismThickness}, min={kcl.Header.AreaMinimum}, " +
+                    $"sphereRadius={kcl.Header.SphereRadius?.ToString() ?? "absent"}, " +
+                    $"octreeShift={kcl.Header.BlockWidthShift}");
+                foreach (var group in kcl.CollisionFlagCounts.OrderByDescending(pair => pair.Value))
+                {
+                    var flag = new Tools.KclCollisionFlag(group.Key);
+                    result.KclFlags.Add(new KclFlagRow($"0x{flag.Raw:X4}", flag.Type, flag.Variant,
+                        flag.BlightIndex, flag.WheelDepth, flag.Effects, group.Value));
+                }
+                foreach (var row in result.KclFlags.Take(20))
+                    log.AppendLine($"  collision {row.Flag}: type=0x{row.Type:X2} variant={row.Variant} " +
+                        $"blight={row.Blight} wheel={row.WheelDepth} effects={row.Effects} prisms={row.Prisms}");
+                if (result.KclFlags.Count > 20)
+                    log.AppendLine($"  ... {result.KclFlags.Count - 20} additional full flag values in the KCL tab");
+                foreach (string warning in kcl.Warnings.Take(10)) log.AppendLine("  warning: " + warning);
+            }
+            catch (Exception ex)
+            {
+                result.KclSummary = "KCL parser failed: " + ex.Message;
+                log.AppendLine("KCL: FAILED: " + ex);
+            }
         }
         log.AppendLine();
 
@@ -277,9 +355,10 @@ public partial class LibraryValidationPage : Page
         try
         {
             Tools.CourseData course = Tools.CourseDataLoader.Open(bytes, Tools.BrresImportMode.GeometryOnly);
-            bool valid = course.Kmp.Sections.Count > 0 && course.Model?.Geometry.TriangleCount > 0;
+            bool valid = course.Kmp.Sections.Count > 0 && course.Model?.Geometry.TriangleCount > 0 &&
+                (!archive.ContainsFile("course.kcl") || course.Kcl?.PrismCount == result.KclPrisms);
             result.CourseLoaderOk = valid;
-            log.AppendLine("CourseDataLoader.Open(GeometryOnly): " + (valid ? "PASS" : "WARN — no KMP sections or course model"));
+            log.AppendLine("CourseDataLoader.Open(GeometryOnly): " + (valid ? "PASS" : "WARN — KMP/BRRES/KCL parity mismatch"));
         }
         catch (Exception ex)
         {
@@ -289,16 +368,295 @@ public partial class LibraryValidationPage : Page
         watch.Stop();
         bool profilesOk = result.Profiles.Count == 3 && result.Profiles.All(p => p.State == "PASS");
         result.Headline = $"{Path.GetFileName(path)} · KMP {(result.KmpOk ? "PASS" : "FAIL")} · " +
+            $"KCL {(archive.ContainsFile("course.kcl") ? (result.KclOk ? "PASS" : "FAIL") : "SKIP")} · " +
             $"BRRES {result.Profiles.Count(p => p.State == "PASS")}/3 PASS · " +
             $"parity {(result.ParityOk ? "PASS" : "CHECK")} · " +
             $"CourseDataLoader {(result.CourseLoaderOk ? "PASS" : "CHECK")} · {watch.ElapsedMilliseconds:N0} ms";
         log.AppendLine();
         log.AppendLine("FINAL: " + result.Headline);
         log.AppendLine("Notes: TEV metadata is not cycle-exact rendering. This page tests decoder output, not OpenGL material appearance.");
-        if (!result.KmpOk || !profilesOk || !result.ParityOk || !result.CourseLoaderOk)
+        if (!result.KmpOk || (archive.ContainsFile("course.kcl") && !result.KclOk) || !profilesOk || !result.ParityOk || !result.CourseLoaderOk)
             log.AppendLine("One or more checks need inspection; see errors/warnings above.");
         result.Report = log.ToString();
         return result;
+    }
+
+    // Phase 2: geometry-only WPF visualization. The reusable KCL decoder remains UI-independent.
+    // Build on the UI thread after the background parse has completed.
+    private void KclColorMode_Changed(object sender, RoutedEventArgs e)
+    {
+        _kclColorById = KclColorModeBox?.IsChecked == true;
+        if (_kclLoadedTriangles is { Count: > 0 } triangles)
+            ShowKclTriangles(triangles, resetCamera: false);
+    }
+
+    // Group presets operate on base IDs only. Names are broad working categories,
+    // not a substitute for a complete MKW collision behavior table.
+    private static readonly (string Name, int[] Types)[] KclGroupPresets =
+    {
+        ("Road / driveable", new[] { 0x00, 0x01, 0x05, 0x09 }),
+        ("Off-road", new[] { 0x02, 0x03, 0x04 }),
+        ("Boost / jump", new[] { 0x06, 0x07, 0x08 }),
+        ("Walls", new[] { 0x0C, 0x0D, 0x0E, 0x0F }),
+        ("Fall / boundaries", new[] { 0x0A, 0x10 }),
+        ("Other types", new[] { 0x0B, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+                                0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F })
+    };
+
+    private void KclGroupPreset_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not string name)
+            return;
+        var preset = KclGroupPresets.FirstOrDefault(p => p.Name == name);
+        if (preset.Types is null)
+            return;
+        var selected = new HashSet<int>(preset.Types);
+        _kclUpdatingFilters = true;
+        _kclVisibleTypes.Clear();
+        foreach (CheckBox box in KclTypeFilterPanel.Children.OfType<CheckBox>())
+        {
+            int type = (int)box.Tag;
+            bool enabled = selected.Contains(type);
+            box.IsChecked = enabled;
+            if (enabled) _kclVisibleTypes.Add(type);
+        }
+        _kclUpdatingFilters = false;
+        if (_kclLoadedTriangles is { Count: > 0 } triangles)
+            ShowKclTriangles(triangles, resetCamera: false);
+    }
+
+    private void PopulateKclTypeFilters(IReadOnlyList<Tools.KclTriangle> triangles)
+    {
+        _kclUpdatingFilters = true;
+        KclTypeFilterPanel.Children.Clear();
+        _kclVisibleTypes.Clear();
+        foreach (var group in triangles.GroupBy(t => (int)(t.Collision.Raw & 0x1F)).OrderBy(g => g.Key))
+        {
+            int type = group.Key;
+            _kclVisibleTypes.Add(type);
+            var checkbox = new CheckBox
+            {
+                Content = $"0x{type:X2}  ({group.Count():N0})",
+                Tag = type,
+                IsChecked = true,
+                Foreground = Brushes.White,
+                Margin = new Thickness(3, 2, 10, 2)
+            };
+            checkbox.Checked += KclTypeFilter_Changed;
+            checkbox.Unchecked += KclTypeFilter_Changed;
+            KclTypeFilterPanel.Children.Add(checkbox);
+        }
+        KclGroupPresetPanel.Children.Clear();
+        foreach (var preset in KclGroupPresets)
+        {
+            int count = triangles.Count(t => preset.Types.Contains(t.Collision.Raw & 0x1F));
+            if (count == 0)
+                continue;
+            var button = new Button
+            {
+                Content = $"{preset.Name} ({count:N0})",
+                Tag = preset.Name,
+                Padding = new Thickness(9, 3, 9, 3),
+                Margin = new Thickness(0, 0, 6, 5)
+            };
+            button.Click += KclGroupPreset_Click;
+            KclGroupPresetPanel.Children.Add(button);
+        }
+        _kclUpdatingFilters = false;
+    }
+
+    private void KclTypeFilter_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_kclUpdatingFilters || sender is not CheckBox box || box.Tag is not int type)
+            return;
+        if (box.IsChecked == true) _kclVisibleTypes.Add(type);
+        else _kclVisibleTypes.Remove(type);
+        if (_kclLoadedTriangles is { Count: > 0 } triangles)
+            ShowKclTriangles(triangles, resetCamera: false);
+    }
+
+    private void KclFilterAll_Click(object sender, RoutedEventArgs e) => SetKclFilters(true);
+    private void KclFilterNone_Click(object sender, RoutedEventArgs e) => SetKclFilters(false);
+    private void KclFilterInvert_Click(object sender, RoutedEventArgs e)
+    {
+        _kclUpdatingFilters = true;
+        foreach (CheckBox box in KclTypeFilterPanel.Children.OfType<CheckBox>())
+        {
+            bool enabled = box.IsChecked != true;
+            box.IsChecked = enabled;
+            int type = (int)box.Tag;
+            if (enabled) _kclVisibleTypes.Add(type);
+            else _kclVisibleTypes.Remove(type);
+        }
+        _kclUpdatingFilters = false;
+        if (_kclLoadedTriangles is { Count: > 0 } triangles)
+            ShowKclTriangles(triangles, resetCamera: false);
+    }
+
+    private void SetKclFilters(bool visible)
+    {
+        _kclUpdatingFilters = true;
+        foreach (CheckBox box in KclTypeFilterPanel.Children.OfType<CheckBox>())
+        {
+            box.IsChecked = visible;
+            int type = (int)box.Tag;
+            if (visible) _kclVisibleTypes.Add(type);
+            else _kclVisibleTypes.Remove(type);
+        }
+        _kclUpdatingFilters = false;
+        if (_kclLoadedTriangles is { Count: > 0 } triangles)
+            ShowKclTriangles(triangles, resetCamera: false);
+    }
+
+    // Stable, reproducible color per full 16-bit collision flag. The low 5 bits
+    // identify the base collision type; higher bits distinguish its variants.
+    private static Color ColorForKclFlag(ushort raw)
+    {
+        uint hash = raw;
+        hash ^= hash >> 7;
+        hash *= 0x9E3779B1u;
+        hash ^= hash >> 16;
+        double hue = (hash % 3600) / 10.0;
+        double saturation = 0.64 + ((hash >> 12) & 7) / 70.0;
+        double value = 0.84;
+        double chroma = value * saturation;
+        double sector = hue / 60.0;
+        double second = chroma * (1 - Math.Abs(sector % 2 - 1));
+        (double r, double g, double b) = ((int)sector) switch
+        {
+            0 => (chroma, second, 0.0), 1 => (second, chroma, 0.0),
+            2 => (0.0, chroma, second), 3 => (0.0, second, chroma),
+            4 => (second, 0.0, chroma), _ => (chroma, 0.0, second)
+        };
+        double m = value - chroma;
+        return Color.FromRgb((byte)Math.Round((r + m) * 255),
+            (byte)Math.Round((g + m) * 255), (byte)Math.Round((b + m) * 255));
+    }
+
+    private void ShowKclTriangles(IReadOnlyList<Tools.KclTriangle> triangles, bool resetCamera = true)
+    {
+        _kclLoadedTriangles = triangles;
+        double minX = double.PositiveInfinity, minY = double.PositiveInfinity, minZ = double.PositiveInfinity;
+        double maxX = double.NegativeInfinity, maxY = double.NegativeInfinity, maxZ = double.NegativeInfinity;
+        foreach (var t in triangles)
+        {
+            foreach (var v in new[] { t.A, t.B, t.C })
+            {
+                minX = Math.Min(minX, v.X); minY = Math.Min(minY, v.Y); minZ = Math.Min(minZ, v.Z);
+                maxX = Math.Max(maxX, v.X); maxY = Math.Max(maxY, v.Y); maxZ = Math.Max(maxZ, v.Z);
+            }
+        }
+        if (!double.IsFinite(minX) || !double.IsFinite(maxX))
+        {
+            KclViewportHint.Text = "Invalid KCL vertex coordinates";
+            return;
+        }
+        // Normalize for stable WPF depth precision even on very large custom tracks.
+        double cx = (minX + maxX) * 0.5, cy = (minY + maxY) * 0.5, cz = (minZ + maxZ) * 0.5;
+        double extent = Math.Max(1, Math.Max(maxX - minX, Math.Max(maxY - minY, maxZ - minZ)));
+        double unit = 200.0 / extent;
+        var model = new Model3DGroup();
+        // One material per collision flag; each flag's geometry is chunked independently.
+        // This avoids per-triangle WPF GeometryModel3D objects and stays efficient.
+        const int chunkSize = 12000;
+        var visibleTriangles = triangles.Where(t => _kclVisibleTypes.Contains(t.Collision.Raw & 0x1F));
+        var groups = _kclColorById
+            ? visibleTriangles.GroupBy(t => t.Collision.Raw).OrderBy(g => g.Key)
+            : visibleTriangles.GroupBy(t => (ushort)0);
+        int drawn = 0;
+        int distinctFlags = triangles.Select(t => t.Collision.Raw).Distinct().Count();
+        foreach (var group in groups)
+        {
+            Color color = _kclColorById ? ColorForKclFlag(group.Key) : Color.FromRgb(173, 185, 196);
+            var brush = new SolidColorBrush(color);
+            brush.Freeze();
+            var material = new DiffuseMaterial(brush);
+            material.Freeze();
+            // Enumerate each group once; do not allocate a separate model for each triangle.
+            var positions = new Point3DCollection();
+            var indices = new Int32Collection();
+            var normals = new Vector3DCollection();
+            void Flush()
+            {
+                if (indices.Count == 0) return;
+                var mesh = new MeshGeometry3D { Positions = positions, TriangleIndices = indices, Normals = normals };
+                mesh.Freeze();
+                var geometry = new GeometryModel3D(mesh, material) { BackMaterial = material };
+                model.Children.Add(geometry);
+                positions = new Point3DCollection();
+                indices = new Int32Collection();
+                normals = new Vector3DCollection();
+            }
+            foreach (var t in group)
+            {
+                var a = new Point3D((t.A.X - cx) * unit, (t.A.Y - cy) * unit, (t.A.Z - cz) * unit);
+                var b = new Point3D((t.B.X - cx) * unit, (t.B.Y - cy) * unit, (t.B.Z - cz) * unit);
+                var d = new Point3D((t.C.X - cx) * unit, (t.C.Y - cy) * unit, (t.C.Z - cz) * unit);
+                Vector3D normal = Vector3D.CrossProduct(b - a, d - a);
+                if (normal.LengthSquared < 1e-16) continue;
+                normal.Normalize();
+                int n = positions.Count;
+                positions.Add(a); positions.Add(b); positions.Add(d);
+                indices.Add(n); indices.Add(n + 1); indices.Add(n + 2);
+                normals.Add(normal); normals.Add(normal); normals.Add(normal);
+                drawn++;
+                if (indices.Count / 3 >= chunkSize) Flush();
+            }
+            Flush();
+        }
+        KclModelVisual.Content = model;
+        if (resetCamera)
+        {
+            _kclCenter = new Point3D(0, 0, 0);
+            _kclRadius = Math.Sqrt(3) * 100;
+            _kclDistance = 320;
+            _kclYaw = 0.65; _kclPitch = 0.85;
+            UpdateKclCamera();
+        }
+        KclViewportHint.Text = $"{drawn:N0}/{triangles.Count:N0} visible triangles · {_kclVisibleTypes.Count} base types · {distinctFlags} total flags · " +
+            (_kclColorById ? "colored by full ID" : "gray") + " · drag to orbit · wheel to zoom";
+        Console.WriteLine($"[DebugManager] KCL Phase 3 WPF mesh: {drawn} triangles, {model.Children.Count} chunks, " +
+            $"{distinctFlags} full collision flags, mode={(_kclColorById ? "color" : "gray")}; library decoder unchanged.");
+    }
+
+    private void UpdateKclCamera()
+    {
+        double h = _kclDistance * Math.Cos(_kclPitch);
+        var pos = new Point3D(_kclCenter.X + h * Math.Sin(_kclYaw),
+            _kclCenter.Y + _kclDistance * Math.Sin(_kclPitch),
+            _kclCenter.Z + h * Math.Cos(_kclYaw));
+        KclCamera.Position = pos;
+        KclCamera.LookDirection = _kclCenter - pos;
+        KclCamera.UpDirection = new Vector3D(0, 1, 0);
+        KclCamera.NearPlaneDistance = Math.Max(0.01, _kclDistance / 10000);
+        KclCamera.FarPlaneDistance = Math.Max(1000, _kclDistance * 100);
+    }
+
+    private void KclViewport_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _kclDragging = true;
+        _kclDragPoint = e.GetPosition(KclViewport);
+        KclViewport.CaptureMouse();
+    }
+    private void KclViewport_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        _kclDragging = false;
+        KclViewport.ReleaseMouseCapture();
+    }
+    private void KclViewport_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (!_kclDragging || e.LeftButton != MouseButtonState.Pressed) return;
+        Point next = e.GetPosition(KclViewport);
+        _kclYaw += (next.X - _kclDragPoint.X) * 0.008;
+        _kclPitch = Math.Clamp(_kclPitch + (next.Y - _kclDragPoint.Y) * 0.008, -1.5, 1.5);
+        _kclDragPoint = next;
+        UpdateKclCamera();
+    }
+    private void KclViewport_MouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        _kclDistance = Math.Clamp(_kclDistance * Math.Pow(0.88, e.Delta / 120.0), 2, 10000);
+        UpdateKclCamera();
+        e.Handled = true;
     }
 
     private static BitmapSource DecodeTextureImage(Tools.BrresMaterialDiagnostics.TexturePixels source)
@@ -374,6 +732,11 @@ public partial class LibraryValidationPage : Page
     {
         public List<ProfileRow> Profiles { get; } = [];
         public List<KmpRow> KmpSections { get; } = [];
+        public List<KclFlagRow> KclFlags { get; } = [];
+        public string KclSummary { get; set; } = "Not tested";
+        public bool KclOk { get; set; }
+        public int KclPrisms { get; set; }
+        public IReadOnlyList<Tools.KclTriangle>? KclTriangles { get; set; }
         public List<TevStageRow> TevStages { get; } = [];
         public Dictionary<Tools.BrresImportMode, ModelSummary> Models { get; } = [];
         public IReadOnlyList<Tools.KmpCheckpoint> Checkpoints { get; set; } = [];
@@ -398,3 +761,5 @@ public sealed record KmpRow(string Section, int DeclaredEntries, string EntrySiz
 public sealed record TevStageRow(int Material, int Stage, bool TextureEnabled,
     int TextureMap, int TexCoord, int ColorDestination, int AlphaDestination,
     int TextureSwap, int RasterSwap, bool Indirect);
+
+public sealed record KclFlagRow(string Flag, int Type, int Variant, int Blight, int WheelDepth, int Effects, int Prisms);
