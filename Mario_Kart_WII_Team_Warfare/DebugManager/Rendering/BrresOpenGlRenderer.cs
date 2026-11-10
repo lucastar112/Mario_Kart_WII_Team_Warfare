@@ -15,6 +15,7 @@ using DebugManager.Services.TrackFormats;
 using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 using GlVector3 = OpenTK.Mathematics.Vector3;
+using KclTriangle = GameManager.Tools.TrackFormats.KclTriangle;
 using GlPixelFormat = OpenTK.Graphics.OpenGL4.PixelFormat;
 
 
@@ -49,6 +50,13 @@ internal sealed class BrresOpenGlRenderer
     private BrresModelReader.DecodeResult? _requested;
     private BrresModelReader.DecodeResult? _uploaded;
     private readonly List<GpuBatch> _batches = [];
+    private readonly List<GpuBatch> _kclBatches = [];
+    private IReadOnlyList<KclTriangle>? _kclRequested;
+    private IReadOnlyList<KclTriangle>? _kclUploaded;
+    public bool ShowKclOverlay { get; set; }
+    public bool KclColorByType { get; set; } = true;
+    public void SetKcl(IReadOnlyList<KclTriangle>? triangles) => _kclRequested = triangles;
+
     private readonly Dictionary<(string, int, int), int> _textures = [];
     private int _program;
     private int _matrixLocation;
@@ -833,8 +841,19 @@ internal sealed class BrresOpenGlRenderer
                 ExportCrossTrackTevReport(_requested);
             }
             _uploaded = _requested;
+            ReleaseKclOverlay();
+            if (_requested is not null && _kclRequested is not null)
+                UploadKclOverlay(_requested, _kclRequested);
+            _kclUploaded = _kclRequested;
         }
 
+        if (!ReferenceEquals(_kclRequested, _kclUploaded))
+        {
+            ReleaseKclOverlay();
+            if (_requested is not null && _kclRequested is not null)
+                UploadKclOverlay(_requested, _kclRequested);
+            _kclUploaded = _kclRequested;
+        }
         GL.Viewport(0, 0, width, height);
         GL.Enable(EnableCap.DepthTest);
         GL.DepthFunc(DepthFunction.Lequal);
@@ -954,6 +973,23 @@ internal sealed class BrresOpenGlRenderer
                 DrawConsolidatedTevPreview(combined, includeSingleStage: true,
                     extendedCompare: true, extendedSwap: true, extendedPrecision: true);
                 break;
+        }
+        if (ShowKclOverlay && _kclBatches.Count > 0)
+        {
+            GL.UseProgram(_program);
+            GL.UniformMatrix4(_matrixLocation, false, ref combined);
+            GL.Uniform1(_samplerLocation, 0);
+            GL.Disable(EnableCap.Blend);
+            GL.Disable(EnableCap.DepthTest); // Diagnostic overlay: visible even where BRRES coincides.
+            GL.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Line);
+            try { foreach (var batch in _kclBatches) DrawBatch(batch); }
+            finally
+            {
+                GL.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Fill);
+                GL.Enable(EnableCap.DepthTest);
+                GL.Enable(EnableCap.Blend);
+                GL.BindVertexArray(0);
+            }
         }
     }
 
@@ -3733,8 +3769,72 @@ internal sealed class BrresOpenGlRenderer
         return shader;
     }
 
+    private void ReleaseKclOverlay()
+    {
+        foreach (var batch in _kclBatches)
+        {
+            GL.DeleteBuffer(batch.Vbo);
+            GL.DeleteVertexArray(batch.Vao);
+            GL.DeleteTexture(batch.Texture);
+        }
+        _kclBatches.Clear();
+    }
+
+    private void UploadKclOverlay(BrresModelReader.DecodeResult model, IReadOnlyList<KclTriangle> triangles)
+    {
+        double cx = (model.Minimum.X + model.Maximum.X) * 0.5;
+        double cy = (model.Minimum.Y + model.Maximum.Y) * 0.5;
+        double cz = (model.Minimum.Z + model.Maximum.Z) * 0.5;
+        int valid = 0;
+        // One 1x1 texture per base collision type; keep the existing shader intact.
+        foreach (var group in triangles.GroupBy(t => t.Collision.Type))
+        {
+            var data = new List<float>();
+            foreach (var triangle in group)
+            {
+                if (!new[] { triangle.A, triangle.B, triangle.C }.All(v =>
+                    float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z))) continue;
+                foreach (var v in new[] { triangle.A, triangle.B, triangle.C })
+                {
+                    data.Add((float)((v.X - cx) * 0.001));
+                    data.Add((float)((v.Y - cy) * 0.001));
+                    data.Add((float)((v.Z - cz) * 0.001));
+                    data.Add(0.5f); data.Add(0.5f);
+                }
+                valid++;
+            }
+            // Only complete triangles may enter GL_TRIANGLES.
+            int floats = data.Count - data.Count % 15;
+            if (floats == 0) continue;
+            int vao = GL.GenVertexArray(), vbo = GL.GenBuffer();
+            GL.BindVertexArray(vao);
+            GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
+            float[] vertices = data.Take(floats).ToArray();
+            GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
+            GL.EnableVertexAttribArray(0);
+            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 5 * sizeof(float), 0);
+            GL.EnableVertexAttribArray(1);
+            GL.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 5 * sizeof(float), 3 * sizeof(float));
+            int tex = GL.GenTexture();
+            GL.BindTexture(TextureTarget.Texture2D, tex);
+            // Stable visually distinct colors, opaque for a legible wireframe.
+            byte rr = (byte)(65 + (group.Key * 83) % 190);
+            byte gg = (byte)(65 + (group.Key * 137) % 190);
+            byte bb = (byte)(65 + (group.Key * 53) % 190);
+            GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba8, 1, 1, 0,
+                GlPixelFormat.Rgba, PixelType.UnsignedByte, new byte[] { rr, gg, bb, (byte)255 });
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
+            _kclBatches.Add(new GpuBatch(vao, vbo, vertices.Length / 5, tex, false, GlVector3.Zero));
+        }
+        GL.BindVertexArray(0);
+        WriteDiagnostic($"KCL Phase 5 overlay: {triangles.Count} decoded triangles, {valid} processed, {_kclBatches.Count} collision type batches; BRRES coordinates/scale shared.");
+    }
+
     private void ReleaseModel()
     {
+        ReleaseKclOverlay();
+        _kclUploaded = null;
         // Drop the model-scoped references before their GL batches are deleted.
         _materialDrawPipeline = [];
         _generalTevPlans = [];

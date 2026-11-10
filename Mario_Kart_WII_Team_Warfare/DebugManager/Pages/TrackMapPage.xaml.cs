@@ -15,6 +15,7 @@ using DebugManager.Services;
 using DebugManager.Services.TrackFormats;
 using System.IO;
 using IOPath = System.IO.Path;
+using Tools = GameManager.Tools.TrackFormats;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -29,6 +30,8 @@ public partial class TrackMapPage : Page
 {
     private readonly MainWindow _mainWindow;
     private readonly BrresOpenGlRenderer _openGlRenderer = new();
+    private bool _kclOverlayEnabled;
+
     private bool _openGlStarted;
     private bool _openGlFailed;
     private GLControl? _glControl;
@@ -210,8 +213,21 @@ public partial class TrackMapPage : Page
                     Console.WriteLine("[TrackMap] BRRES mesh decode failed: " + modelException);
                 }
             }
+            IReadOnlyList<Tools.KclTriangle>? collisionTriangles = null;
+            try
+            {
+                var kclArchive = Tools.SzsArchiveReader.Open(File.ReadAllBytes(szsPath));
+                if (kclArchive.ContainsFile("course.kcl"))
+                    collisionTriangles = Tools.KclTriangleDecoder.Decode(
+                        Tools.KclFileReader.Read(kclArchive.ReadFile("course.kcl"))).Triangles;
+            }
+            catch (Exception kclError)
+            {
+                Console.WriteLine("[TrackMap] Optional KCL overlay unavailable: " + kclError);
+            }
             return new TrackDefinition
             {
+                CollisionTriangles = collisionTriangles,
                 CourseId = courseId,
                 DisplayName = $"Track {archive.TrackId}",
                 ArchivePath = archive.SourcePath,
@@ -351,6 +367,8 @@ public partial class TrackMapPage : Page
                 _openGlFirstFrameLogged = true;
                 LogOpenGl("FIRST GL frame; model=" + (_track?.CourseModel is null ? "null" : "present"));
             }
+            _openGlRenderer.SetKcl(_track?.CollisionTriangles);
+            _openGlRenderer.ShowKclOverlay = _kclOverlayEnabled;
             _openGlRenderer.Draw(_track?.CourseModel, Math.Max(1, control.ClientSize.Width),
                 Math.Max(1, control.ClientSize.Height),
                 _cameraYaw, _cameraPitch, _cameraDistance, _cameraTarget);
@@ -673,6 +691,16 @@ public partial class TrackMapPage : Page
     // Camera-relative QZSD / WASD navigation. Focus the 3D viewport by clicking it.
     private void TrackMapPage_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
+            e.Key == System.Windows.Input.Key.F6)
+        {
+            _kclOverlayEnabled = !_kclOverlayEnabled;
+            LogOpenGl("KCL Phase 5: F6 overlay " + (_kclOverlayEnabled ? "ON" : "OFF") +
+                $"; triangles={_track?.CollisionTriangles?.Count ?? 0}");
+            e.Handled = true;
+            return;
+        }
+
         if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
             e.Key == System.Windows.Input.Key.F7)
         {
@@ -1031,6 +1059,7 @@ public partial class TrackMapPage : Page
         public string TrackImage { get; set; } = "";
         public string ArchivePath { get; set; } = "";
         public string Summary { get; set; } = "";
+        public IReadOnlyList<Tools.KclTriangle>? CollisionTriangles { get; set; }
         public KmpDocument? Kmp { get; set; }
         public LexDocument? Lex { get; set; }
         public BrresModelReader.DecodeResult? CourseModel { get; set; }
