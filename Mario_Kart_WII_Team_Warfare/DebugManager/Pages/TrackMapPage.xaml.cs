@@ -31,6 +31,158 @@ public partial class TrackMapPage : Page
     private readonly MainWindow _mainWindow;
     private readonly BrresOpenGlRenderer _openGlRenderer = new();
     private bool _kclOverlayEnabled;
+    private System.Windows.Controls.StackPanel? _overlayFilterStack;
+    private System.Windows.Controls.StackPanel? _kclTypeStack;
+    private readonly Dictionary<int, System.Windows.Controls.CheckBox> _overlayLayerChecks = new();
+    private System.Windows.Controls.CheckBox? _kclEnabledCheck, _playersEnabledCheck;
+    private System.Windows.Controls.ComboBox? _pollCombo;
+    private HashSet<int>? _visibleKclTypes; // null = all collision types
+    private string? _kclFilterSignature;
+
+    private void Build3dFilterPanel()
+    {
+        if (TrackOpenGlHost.Parent is not System.Windows.Controls.Grid viewport || _overlayFilterStack is not null) return;
+        // WPF controls cannot reliably overlay WindowsFormsHost. Reserve a separate grid column.
+        viewport.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = new System.Windows.GridLength(1, System.Windows.GridUnitType.Star) });
+        viewport.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = new System.Windows.GridLength(245) });
+        var panel = new System.Windows.Controls.StackPanel { Margin = new Thickness(10, 8, 10, 8) };
+        _overlayFilterStack = panel;
+        panel.Children.Add(new System.Windows.Controls.TextBlock { Text = "3D OVERLAYS", FontSize = 15, FontWeight = FontWeights.SemiBold,
+            Foreground = System.Windows.Media.Brushes.White, Margin = new Thickness(0, 0, 0, 9) });
+        void AddCheck(string name, bool initial, Action<bool> change, int? bit = null)
+        {
+            var check = new System.Windows.Controls.CheckBox { Content = name, IsChecked = initial, Foreground = System.Windows.Media.Brushes.White,
+                Margin = new Thickness(0, 3, 0, 3) };
+            check.Checked += (_, _) => change(true);
+            check.Unchecked += (_, _) => change(false);
+            panel.Children.Add(check);
+            if (bit.HasValue) _overlayLayerChecks[bit.Value] = check;
+            else if (name == "KCL wireframe") _kclEnabledCheck = check;
+            else if (name == "Live players") _playersEnabledCheck = check;
+        }
+        AddCheck("Checkpoints", true, v => SetLayer(1, v), 1);
+        AddCheck("Enemy paths", true, v => SetLayer(2, v), 2);
+        AddCheck("Item paths", true, v => SetLayer(4, v), 4);
+        AddCheck("KMP objects", true, v => SetLayer(8, v), 8);
+        AddCheck("KCL wireframe", _kclOverlayEnabled, v => _kclOverlayEnabled = v);
+        AddCheck("Live players", _show3dPlayers, v => _show3dPlayers = v);
+        panel.Children.Add(new System.Windows.Controls.TextBlock { Text = "Collision types", Foreground = System.Windows.Media.Brushes.White,
+            FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 13, 0, 5) });
+        var allTypes = new System.Windows.Controls.Button { Content = "Show all KCL types", Margin = new Thickness(0, 0, 0, 5) };
+        allTypes.Click += (_, _) => { _visibleKclTypes = null; RefreshKclTypeChecks(); };
+        panel.Children.Add(allTypes);
+        _kclTypeStack = new System.Windows.Controls.StackPanel();
+        panel.Children.Add(_kclTypeStack);
+        panel.Children.Add(new System.Windows.Controls.TextBlock { Text = "Player refresh", Foreground = System.Windows.Media.Brushes.White,
+            FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 13, 0, 5) });
+        _pollCombo = new System.Windows.Controls.ComboBox { ItemsSource = new[] { "100 ms", "250 ms", "500 ms" }, SelectedIndex = 0 };
+        _pollCombo.SelectionChanged += (_, _) =>
+        {
+            if (_pollCombo.SelectedItem is string selection && int.TryParse(selection.Split(' ')[0], out int ms))
+                SetPlayerRefresh(ms);
+        };
+        panel.Children.Add(_pollCombo);
+        panel.Children.Add(new System.Windows.Controls.TextBlock { Text = "F6: KCL  |  Ctrl+1–5: layers/players  |  Ctrl+6: refresh",
+            TextWrapping = TextWrapping.Wrap, Foreground = System.Windows.Media.Brushes.LightGray,
+            FontSize = 11, Margin = new Thickness(0, 15, 0, 0) });
+        var scroll = new System.Windows.Controls.ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(28, 35, 42)) };
+        System.Windows.Controls.Grid.SetColumn(scroll, 1);
+        viewport.Children.Add(scroll);
+        Sync3dFilterPanel();
+    }
+    private void SetLayer(int bit, bool enabled)
+    {
+        _kmp3dLayers = enabled ? _kmp3dLayers | bit : _kmp3dLayers & ~bit;
+    }
+    private void SetPlayerRefresh(int ms)
+    {
+        _playerRefreshMilliseconds = ms;
+        _openGlRenderer.PlayerInterpolationMilliseconds = ms + 10;
+        LogOpenGl($"Step 6g.4 player poll={ms} ms");
+    }
+    private void Sync3dFilterPanel()
+    {
+        foreach (var entry in _overlayLayerChecks)
+            entry.Value.IsChecked = (_kmp3dLayers & entry.Key) != 0;
+        if (_kclEnabledCheck is not null) _kclEnabledCheck.IsChecked = _kclOverlayEnabled;
+        if (_playersEnabledCheck is not null) _playersEnabledCheck.IsChecked = _show3dPlayers;
+        if (_pollCombo is not null) _pollCombo.SelectedItem = $"{_playerRefreshMilliseconds} ms";
+    }
+    private void RefreshKclTypeChecks()
+    {
+        if (_kclTypeStack is null) return;
+        _kclTypeStack.Children.Clear();
+        var types = _track?.CollisionTriangles?.Select(t => (int)t.Collision.Type).Distinct().OrderBy(t => t).ToArray() ?? Array.Empty<int>();
+        foreach (int type in types)
+        {
+            int captured = type;
+            var check = new System.Windows.Controls.CheckBox { Content = $"Type {type}", IsChecked = _visibleKclTypes is null || _visibleKclTypes.Contains(type),
+                Foreground = System.Windows.Media.Brushes.White, Margin = new Thickness(8, 2, 0, 2) };
+            void Change(bool selected)
+            {
+                _visibleKclTypes ??= new HashSet<int>(types);
+                if (selected) _visibleKclTypes.Add(captured);
+                else _visibleKclTypes.Remove(captured);
+            }
+            check.Checked += (_, _) => Change(true);
+            check.Unchecked += (_, _) => Change(false);
+            _kclTypeStack.Children.Add(check);
+        }
+    }
+
+    private IReadOnlyList<BrresOpenGlRenderer.KmpLine>? _kmp3dLines;
+    private int _kmp3dLayers = 15;
+    private KmpDocument? _kmp3dSource;
+    private bool _show3dPlayers = true;
+    // Faster sampling is inexpensive compared with BRRES decoding; 100 ms is a safe starting point.
+    private int _playerRefreshMilliseconds = 100;
+    private void CyclePlayerRefresh()
+    {
+        SetPlayerRefresh(_playerRefreshMilliseconds switch { 100 => 250, 250 => 500, _ => 100 });
+        Sync3dFilterPanel();
+        LogOpenGl($"Step 6g.3 live players: poll={_playerRefreshMilliseconds} ms; interpolation={_openGlRenderer.PlayerInterpolationMilliseconds} ms; Ctrl+6 cycles 100/250/500 ms.");
+    }
+    private IReadOnlyList<BrresOpenGlRenderer.PlayerMarker> _live3dPlayers = Array.Empty<BrresOpenGlRenderer.PlayerMarker>();
+    private IReadOnlyList<BrresOpenGlRenderer.PlayerMarker>? _uploaded3dPlayers;
+    private readonly Dictionary<uint, (byte[] Pixels,int Width,int Height)> _portraitCache = new();
+
+    private void Update3dPlayers(IReadOnlyList<LivePlayerSnapshot> players)
+    {
+        var markers=new List<BrresOpenGlRenderer.PlayerMarker>(players.Count);
+        foreach(var p in players)
+        {
+            if(!float.IsFinite(p.WorldX)||!float.IsFinite(p.WorldY)||!float.IsFinite(p.WorldZ))continue;
+            byte[]? pixels=null;int width=0,height=0;
+            if(!_portraitCache.TryGetValue(p.CharacterId,out var cached) && p.CharacterImage is BitmapSource bitmap)
+            {
+                try
+                {
+                    BitmapSource source=bitmap.Format==PixelFormats.Bgra32?bitmap:
+                        new FormatConvertedBitmap(bitmap,PixelFormats.Bgra32,null,0);
+                    width=source.PixelWidth;height=source.PixelHeight;
+                    if(width>0 && height>0 && width<=2048 && height<=2048)
+                    {
+                        pixels=new byte[checked(width*height*4)];
+                        source.CopyPixels(pixels,width*4,0);
+                        _portraitCache[p.CharacterId]=(pixels,width,height);
+                    }
+                }
+                catch(Exception ex){LogOpenGl("Player portrait conversion: "+ex.Message);}
+            }
+            else if(cached.Pixels is not null)
+                (pixels,width,height)=cached;
+            float red=p.StarTimer>0?1f:0.2f;
+            float green=p.StarTimer>0?0.8f:0.85f;
+            float blue=p.MegaTimer>0?1f:0.95f;
+            markers.Add(new BrresOpenGlRenderer.PlayerMarker(p.PlayerId,p.CharacterId,
+                p.WorldX,p.WorldY,p.WorldZ,pixels,width,height,red,green,blue,
+                p.Character, p.PositionText));
+        }
+        _live3dPlayers=markers;
+    }
+
+
 
     private bool _openGlStarted;
     private bool _openGlFailed;
@@ -76,6 +228,7 @@ public partial class TrackMapPage : Page
     public TrackMapPage(MainWindow mainWindow)
     {
         InitializeComponent();
+        Build3dFilterPanel();
         _mainWindow = mainWindow;
         Loaded += OnLoaded;
         Unloaded += (_, _) =>
@@ -140,6 +293,7 @@ public partial class TrackMapPage : Page
                 }
                 List<LivePlayerSnapshot> players = await service.GetPlayersAsync(token);
                 DrawPlayers(players);
+                Update3dPlayers(players);
                 StatusText.Text = _track?.Summary is { Length: > 0 } summary
                     ? summary
                     : players.Count == 0 ? "Waiting for race data..." : $"{players.Count} slots · LE-CODE slot 0x{courseId:X}";
@@ -149,7 +303,7 @@ public partial class TrackMapPage : Page
             {
                 StatusText.Text = "Waiting for race data · " + ex.Message;
             }
-            await Task.Delay(500, token);
+            await Task.Delay(_playerRefreshMilliseconds, token);
         }
     }
 
@@ -353,6 +507,79 @@ public partial class TrackMapPage : Page
 
     private void StopGlFrameTimer() => _glFrameTimer?.Stop();
 
+    // KMP geometry is built once per track; the library remains graphics-neutral.
+    private IReadOnlyList<BrresOpenGlRenderer.KmpLine>? BuildKmp3dLines(KmpDocument? kmp)
+    {
+        if (kmp is null) return null;
+        var segments = new List<BrresOpenGlRenderer.KmpLine>();
+        var enemy = kmp.FindSection("ENPT")?.Entries
+            .Where(e => e.Length >= 12).Select(e => KmpEntryDecoder.ReadVector3(e)).ToArray()
+            ?? Array.Empty<Vector3>();
+        float HeightAt(float x, float z)
+        {
+            if (enemy.Length == 0) return 0;
+            var nearest = enemy.MinBy(v => (double)(v.X-x)*(v.X-x)+(double)(v.Z-z)*(v.Z-z));
+            return nearest.Y + 80f; // CKPT has XZ only; approximate its display height.
+        }
+        void Add(float ax,float ay,float az,float bx,float by,float bz,int layer) =>
+            segments.Add(new BrresOpenGlRenderer.KmpLine(ax,ay,az,bx,by,bz,layer));
+        if (_checkpointGraph is not null)
+        {
+            foreach (var cp in _checkpointGraph.Checkpoints)
+                Add(cp.LeftX,HeightAt(cp.LeftX,cp.LeftZ),cp.LeftZ,
+                    cp.RightX,HeightAt(cp.RightX,cp.RightZ),cp.RightZ,1);
+            foreach (var edge in _checkpointGraph.BuildRouteEdges())
+            {
+                if (edge.From < 0 || edge.From >= _checkpointGraph.Checkpoints.Count ||
+                    edge.To < 0 || edge.To >= _checkpointGraph.Checkpoints.Count) continue;
+                var a = _checkpointGraph.Checkpoints[edge.From];
+                var b = _checkpointGraph.Checkpoints[edge.To];
+                Add((float)a.CenterX,HeightAt((float)a.CenterX,(float)a.CenterZ),(float)a.CenterZ,
+                    (float)b.CenterX,HeightAt((float)b.CenterX,(float)b.CenterZ),(float)b.CenterZ,1);
+            }
+        }
+        foreach (var (pointsMagic, groupsMagic, layer) in new[]
+            { ("ENPT","ENPH",2), ("ITPT","ITPH",4) })
+        {
+            var points = kmp.FindSection(pointsMagic)?.Entries
+                .Where(e => e.Length >= 12).Select(e => KmpEntryDecoder.ReadVector3(e)).ToArray()
+                ?? Array.Empty<Vector3>();
+            var groups = kmp.FindSection(groupsMagic)?.Entries;
+            if (groups is null) continue;
+            foreach (var g in groups)
+            {
+                if (g.Length < 2) continue;
+                int start=g[0], count=g[1];
+                if (count < 1 || start + count > points.Length) continue;
+                for (int i=start; i<start+count-1; i++)
+                {
+                    var a=points[i]; var b=points[i+1];
+                    Add(a.X,a.Y+65,a.Z,b.X,b.Y+65,b.Z,layer);
+                }
+                // Small cross markers identify waypoints, including singleton groups.
+                for (int i=start; i<start+count; i++)
+                {
+                    var v=points[i];
+                    Add(v.X-35,v.Y+65,v.Z,v.X+35,v.Y+65,v.Z,layer);
+                    Add(v.X,v.Y+65,v.Z-35,v.X,v.Y+65,v.Z+35,layer);
+                }
+            }
+        }
+        var objects=kmp.FindSection("GOBJ")?.Entries;
+        if (objects is not null)
+            foreach (var entry in objects)
+            {
+                if (entry.Length < 16) continue;
+                var v=KmpEntryDecoder.ReadVector3(entry,0x04);
+                const float d=90;
+                Add(v.X-d,v.Y,v.Z,v.X+d,v.Y,v.Z,8);
+                Add(v.X,v.Y-d,v.Z,v.X,v.Y+d,v.Z,8);
+                Add(v.X,v.Y,v.Z-d,v.X,v.Y,v.Z+d,8);
+            }
+        LogOpenGl($"Step 6g.1 KMP geometry: {segments.Count} segments; Ctrl+1 checkpoints, Ctrl+2 enemy, Ctrl+3 item, Ctrl+4 objects, Ctrl+0 all.");
+        return segments;
+    }
+
     private void RenderOpenGlFrame()
     {
         if (_glRenderBusy || !_openGlStarted || _glControl is not { IsDisposed: false } control ||
@@ -367,8 +594,29 @@ public partial class TrackMapPage : Page
                 _openGlFirstFrameLogged = true;
                 LogOpenGl("FIRST GL frame; model=" + (_track?.CourseModel is null ? "null" : "present"));
             }
+            if (!ReferenceEquals(_kmp3dSource, _track?.Kmp))
+            {
+                _kmp3dSource = _track?.Kmp;
+                _kmp3dLines = BuildKmp3dLines(_track?.Kmp);
+            }
+            if (!ReferenceEquals(_uploaded3dPlayers, _live3dPlayers))
+            {
+                _openGlRenderer.SetPlayerMarkers(_live3dPlayers);
+                _uploaded3dPlayers = _live3dPlayers;
+            }
+            _openGlRenderer.ShowPlayerMarkers = _show3dPlayers;
+            _openGlRenderer.SetKmpLines(_kmp3dLines);
+            _openGlRenderer.KmpVisibleLayers = _kmp3dLayers;
             _openGlRenderer.SetKcl(_track?.CollisionTriangles);
             _openGlRenderer.ShowKclOverlay = _kclOverlayEnabled;
+            _openGlRenderer.VisibleKclTypes = _visibleKclTypes;
+            var signature = string.Join(",", _track?.CollisionTriangles?.Select(t => (int)t.Collision.Type).Distinct().OrderBy(t => t) ?? Enumerable.Empty<int>());
+            if (_kclFilterSignature != signature)
+            {
+                _kclFilterSignature = signature;
+                _visibleKclTypes = null; // New track starts with every collision type visible.
+                RefreshKclTypeChecks();
+            }
             _openGlRenderer.Draw(_track?.CourseModel, Math.Max(1, control.ClientSize.Width),
                 Math.Max(1, control.ClientSize.Height),
                 _cameraYaw, _cameraPitch, _cameraDistance, _cameraTarget);
@@ -505,6 +753,17 @@ public partial class TrackMapPage : Page
 
     private void GlKeyDown(object? sender, WF.KeyEventArgs e)
     {
+        if (e.Control && e.KeyCode == WF.Keys.D6)
+        {
+            CyclePlayerRefresh(); e.Handled = true; return;
+        }
+        if (e.Control && e.KeyCode == WF.Keys.D5)
+        {
+            _show3dPlayers = !_show3dPlayers;
+            Sync3dFilterPanel();
+            LogOpenGl("Step 6g.2 live player heads: " + (_show3dPlayers ? "ON" : "OFF"));
+            e.Handled = true; return;
+        }
         if (e.KeyCode == WF.Keys.F7)
         {
             CycleMaterial7UvSamplingTest();
@@ -692,9 +951,48 @@ public partial class TrackMapPage : Page
     private void TrackMapPage_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
+            e.Key == System.Windows.Input.Key.D6 &&
+            (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0)
+        {
+            CyclePlayerRefresh(); e.Handled = true; return;
+        }
+
+        if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
+            e.Key == System.Windows.Input.Key.D5 &&
+            (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0)
+        {
+            _show3dPlayers = !_show3dPlayers;
+            Sync3dFilterPanel();
+            LogOpenGl("Step 6g.2 live player heads: " + (_show3dPlayers ? "ON" : "OFF"));
+            e.Handled = true; return;
+        }
+
+        if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
+            (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0)
+        {
+            int bit = e.Key switch
+            {
+                System.Windows.Input.Key.D1 or System.Windows.Input.Key.NumPad1 => 1,
+                System.Windows.Input.Key.D2 or System.Windows.Input.Key.NumPad2 => 2,
+                System.Windows.Input.Key.D3 or System.Windows.Input.Key.NumPad3 => 4,
+                System.Windows.Input.Key.D4 or System.Windows.Input.Key.NumPad4 => 8,
+                _ => 0
+            };
+            if (bit != 0 || e.Key is System.Windows.Input.Key.D0 or System.Windows.Input.Key.NumPad0)
+            {
+                if (bit == 0) _kmp3dLayers = _kmp3dLayers == 15 ? 0 : 15;
+                else _kmp3dLayers ^= bit;
+                Sync3dFilterPanel();
+                LogOpenGl($"Step 6g.1 KMP filters: mask={_kmp3dLayers} CKPT={(_kmp3dLayers&1)!=0} ENPT={(_kmp3dLayers&2)!=0} ITPT={(_kmp3dLayers&4)!=0} GOBJ={(_kmp3dLayers&8)!=0}");
+                e.Handled = true;
+                return;
+            }
+        }
+        if (View3DToggle.IsChecked == true && OpenGlToggle.IsChecked == true &&
             e.Key == System.Windows.Input.Key.F6)
         {
             _kclOverlayEnabled = !_kclOverlayEnabled;
+            Sync3dFilterPanel();
             LogOpenGl("KCL Phase 5: F6 overlay " + (_kclOverlayEnabled ? "ON" : "OFF") +
                 $"; triangles={_track?.CollisionTriangles?.Count ?? 0}");
             e.Handled = true;

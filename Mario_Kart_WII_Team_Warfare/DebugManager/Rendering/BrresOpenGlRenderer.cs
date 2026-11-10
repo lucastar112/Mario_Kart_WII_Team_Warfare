@@ -51,6 +51,64 @@ internal sealed class BrresOpenGlRenderer
     private BrresModelReader.DecodeResult? _uploaded;
     private readonly List<GpuBatch> _batches = [];
     private readonly List<GpuBatch> _kclBatches = [];
+    private readonly List<int> _kclBatchTypes = [];
+    public HashSet<int>? VisibleKclTypes { get; set; } // null = all types
+    // Step 6g.1: static KMP line segments, supplied in game-world coordinates.
+    internal readonly record struct KmpLine(float X1, float Y1, float Z1,
+        float X2, float Y2, float Z2, int Layer);
+    private IReadOnlyList<KmpLine>? _kmpRequested;
+    private IReadOnlyList<KmpLine>? _kmpUploaded;
+    private readonly List<(int Vao, int Vbo, int Count, int Layer)> _kmpLines = [];
+    private int _kmpProgram;
+    private int _kmpMatrixLocation;
+    private int _kmpColorLocation;
+    public int KmpVisibleLayers { get; set; } = 15; // 1=CKPT, 2=ENPT, 4=ITPT, 8=GOBJ
+    public void SetKmpLines(IReadOnlyList<KmpLine>? lines) => _kmpRequested = lines;
+
+    // Step 6g.2: live race snapshots are replaced atomically on the WPF dispatcher.
+    // All OpenGL allocations stay on the GLControl render/context thread.
+    internal sealed record PlayerMarker(int Slot, uint CharacterId, float X, float Y, float Z,
+        byte[]? Bgra, int ImageWidth, int ImageHeight, float Red, float Green, float Blue,
+        string Name, string Place);
+    private IReadOnlyList<PlayerMarker> _playerMarkers = Array.Empty<PlayerMarker>();
+    private readonly Dictionary<int, (PlayerMarker Previous, PlayerMarker Current, long Received)> _playerMotion = new();
+    private readonly Dictionary<string, (int Texture, int Width, int Height)> _playerLabelTextures = new();
+    private static readonly double TickFrequency = 1.0 / Stopwatch.Frequency;
+    public int PlayerInterpolationMilliseconds { get; set; } = 110;
+    private readonly Dictionary<uint, int> _playerPortraitTextures = new();
+    private int _playerSpriteProgram, _playerSpriteVao;
+    private int _playerRectUniform, _playerColorUniform, _playerTextureUniform, _playerHasTextureUniform;
+    public bool ShowPlayerMarkers { get; set; } = true;
+    public void SetPlayerMarkers(IReadOnlyList<PlayerMarker> players)
+    {
+        long now = Stopwatch.GetTimestamp();
+        foreach (PlayerMarker player in players)
+        {
+            if (_playerMotion.TryGetValue(player.Slot, out var previous))
+            {
+                // Begin each new segment from the currently displayed position, not an older sample.
+                PlayerMarker start = InterpolatedPlayer(previous, now);
+                double distanceSquared = Math.Pow(start.X - player.X, 2) + Math.Pow(start.Y - player.Y, 2) + Math.Pow(start.Z - player.Z, 2);
+                if (distanceSquared > 25000000) start = player; // teleport / respawn: never sweep across the track
+                _playerMotion[player.Slot] = (start, player, now);
+            }
+            else _playerMotion[player.Slot] = (player, player, now);
+        }
+        var active = new HashSet<int>(players.Select(p => p.Slot));
+        foreach (int slot in _playerMotion.Keys.Where(k => !active.Contains(k)).ToArray()) _playerMotion.Remove(slot);
+        _playerMarkers = players;
+    }
+    private PlayerMarker InterpolatedPlayer((PlayerMarker Previous, PlayerMarker Current, long Received) motion, long now)
+    {
+        float t = (float)Math.Clamp((now - motion.Received) * TickFrequency * 1000.0 / Math.Max(1, PlayerInterpolationMilliseconds), 0.0, 1.0);
+        return motion.Current with
+        {
+            X = motion.Previous.X + (motion.Current.X - motion.Previous.X) * t,
+            Y = motion.Previous.Y + (motion.Current.Y - motion.Previous.Y) * t,
+            Z = motion.Previous.Z + (motion.Current.Z - motion.Previous.Z) * t
+        };
+    }
+
     private IReadOnlyList<KclTriangle>? _kclRequested;
     private IReadOnlyList<KclTriangle>? _kclUploaded;
     public bool ShowKclOverlay { get; set; }
@@ -854,6 +912,13 @@ internal sealed class BrresOpenGlRenderer
                 UploadKclOverlay(_requested, _kclRequested);
             _kclUploaded = _kclRequested;
         }
+        if (!ReferenceEquals(_kmpRequested, _kmpUploaded))
+        {
+            ReleaseKmpLines();
+            if (_requested is not null && _kmpRequested is not null)
+                UploadKmpLines(_requested, _kmpRequested);
+            _kmpUploaded = _kmpRequested;
+        }
         GL.Viewport(0, 0, width, height);
         GL.Enable(EnableCap.DepthTest);
         GL.DepthFunc(DepthFunction.Lequal);
@@ -982,7 +1047,8 @@ internal sealed class BrresOpenGlRenderer
             GL.Disable(EnableCap.Blend);
             GL.Disable(EnableCap.DepthTest); // Diagnostic overlay: visible even where BRRES coincides.
             GL.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Line);
-            try { foreach (var batch in _kclBatches) DrawBatch(batch); }
+            try { for (int i = 0; i < _kclBatches.Count; i++)
+                if (VisibleKclTypes is null || VisibleKclTypes.Contains(_kclBatchTypes[i])) DrawBatch(_kclBatches[i]); }
             finally
             {
                 GL.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Fill);
@@ -991,6 +1057,250 @@ internal sealed class BrresOpenGlRenderer
                 GL.BindVertexArray(0);
             }
         }
+        DrawKmpLines(combined);
+        DrawPlayerMarkers(combined, width, height);
+    }
+
+    private void DrawKmpLines(Matrix4 combined)
+    {
+        if (KmpVisibleLayers == 0 || _kmpLines.Count == 0) return;
+        if (_kmpProgram == 0)
+        {
+            const string vs = "#version 330 core\nlayout(location=0) in vec3 aPosition;\nuniform mat4 uMatrix;\nvoid main(){gl_Position=uMatrix*vec4(aPosition,1.0);}";
+            const string fs = "#version 330 core\nuniform vec4 uColor;\nout vec4 fragColor;\nvoid main(){fragColor=uColor;}";
+            int vert = Compile(ShaderType.VertexShader, vs);
+            int frag = Compile(ShaderType.FragmentShader, fs);
+            _kmpProgram = GL.CreateProgram();
+            GL.AttachShader(_kmpProgram, vert);
+            GL.AttachShader(_kmpProgram, frag);
+            GL.LinkProgram(_kmpProgram);
+            GL.GetProgram(_kmpProgram, GetProgramParameterName.LinkStatus, out int linked);
+            string log = GL.GetProgramInfoLog(_kmpProgram);
+            GL.DetachShader(_kmpProgram, vert); GL.DetachShader(_kmpProgram, frag);
+            GL.DeleteShader(vert); GL.DeleteShader(frag);
+            if (linked == 0) throw new InvalidOperationException("KMP line shader link: " + log);
+            _kmpMatrixLocation = GL.GetUniformLocation(_kmpProgram, "uMatrix");
+            _kmpColorLocation = GL.GetUniformLocation(_kmpProgram, "uColor");
+        }
+        GL.UseProgram(_kmpProgram);
+        GL.UniformMatrix4(_kmpMatrixLocation, false, ref combined);
+        GL.Disable(EnableCap.DepthTest); // Map-style diagnostic, always legible.
+        GL.Disable(EnableCap.Blend);
+        GL.LineWidth(2f);
+        try
+        {
+            foreach (var batch in _kmpLines)
+            {
+                if ((KmpVisibleLayers & batch.Layer) == 0) continue;
+                (float cr, float cg, float cb) = batch.Layer switch
+                {
+                    1 => (0.15f, 0.9f, 1f),
+                    2 => (1f, 0.45f, 0.1f),
+                    4 => (0.8f, 0.25f, 1f),
+                    _ => (1f, 0.85f, 0.1f)
+                };
+                GL.Uniform4(_kmpColorLocation, cr, cg, cb, 1f);
+                GL.BindVertexArray(batch.Vao);
+                GL.DrawArrays(PrimitiveType.Lines, 0, batch.Count);
+            }
+        }
+        finally
+        {
+            GL.BindVertexArray(0);
+            GL.LineWidth(1f);
+            GL.Enable(EnableCap.DepthTest);
+            GL.Enable(EnableCap.Blend);
+        }
+    }
+
+    private void InitializePlayerSpriteProgram()
+    {
+        const string vertex = "#version 330 core\nuniform vec4 uRect;\nout vec2 vUv;\nvoid main(){vec2 corner=vec2((gl_VertexID==1 || gl_VertexID==2)?1.0:0.0,(gl_VertexID>=2)?1.0:0.0); gl_Position=vec4(uRect.xy+corner*uRect.zw,0.0,1.0);vUv=vec2(corner.x,1.0-corner.y);}";
+        const string fragment = "#version 330 core\nin vec2 vUv;\nuniform sampler2D uPortrait;\nuniform vec3 uColor;\nuniform int uHasTexture;\nout vec4 fragColor;\nvoid main(){vec2 d=vUv*2.0-1.0;float radius=length(d);if(radius>1.0)discard;vec4 portrait=uHasTexture!=0?texture(uPortrait,vUv):vec4(uColor,1.0);float border=step(0.85,radius);fragColor=vec4(mix(portrait.rgb,uColor,border),portrait.a);}";
+        int vs=Compile(ShaderType.VertexShader,vertex), fs=Compile(ShaderType.FragmentShader,fragment);
+        int program=GL.CreateProgram();
+        GL.AttachShader(program,vs);GL.AttachShader(program,fs);GL.LinkProgram(program);
+        GL.GetProgram(program,GetProgramParameterName.LinkStatus,out int ok);
+        string log=GL.GetProgramInfoLog(program);
+        GL.DetachShader(program,vs);GL.DetachShader(program,fs);GL.DeleteShader(vs);GL.DeleteShader(fs);
+        if(ok==0){GL.DeleteProgram(program);throw new InvalidOperationException("Player sprite shader: "+log);}
+        _playerSpriteProgram=program;
+        _playerRectUniform=GL.GetUniformLocation(program,"uRect");
+        _playerColorUniform=GL.GetUniformLocation(program,"uColor");
+        _playerTextureUniform=GL.GetUniformLocation(program,"uPortrait");
+        _playerHasTextureUniform=GL.GetUniformLocation(program,"uHasTexture");
+        _playerSpriteVao=GL.GenVertexArray();
+    }
+
+    private void DrawPlayerMarkers(Matrix4 matrix,int width,int height)
+    {
+        if(!ShowPlayerMarkers || _playerMarkers.Count==0) return;
+        if(_playerSpriteProgram==0) InitializePlayerSpriteProgram();
+        GL.Disable(EnableCap.DepthTest); // Heads are map markers, not course geometry.
+        GL.DepthMask(false);
+        GL.Enable(EnableCap.Blend);
+        GL.BlendFunc(BlendingFactor.SrcAlpha,BlendingFactor.OneMinusSrcAlpha);
+        GL.UseProgram(_playerSpriteProgram);
+        GL.BindVertexArray(_playerSpriteVao);
+        GL.Uniform1(_playerTextureUniform,0);
+        GL.ActiveTexture(TextureUnit.Texture0);
+        try
+        {
+            double cx=(_requested!.Minimum.X+_requested.Maximum.X)*0.5;
+            double cy=(_requested.Minimum.Y+_requested.Maximum.Y)*0.5;
+            double cz=(_requested.Minimum.Z+_requested.Maximum.Z)*0.5;
+            foreach(var sample in _playerMarkers)
+            {
+                var p = _playerMotion.TryGetValue(sample.Slot, out var motion)
+                    ? InterpolatedPlayer(motion, Stopwatch.GetTimestamp()) : sample;
+                if(!float.IsFinite(p.X)||!float.IsFinite(p.Y)||!float.IsFinite(p.Z))continue;
+                // Same world-to-model conversion as BRRES, KCL and KMP.
+                float x=(float)((p.X-cx)*0.001), y=(float)((p.Y+750f-cy)*0.001), z=(float)((p.Z-cz)*0.001);
+                // OpenTK row-vector convention: clip = vec4(x,y,z,1) * (view*projection).
+                float q=x*matrix.M14+y*matrix.M24+z*matrix.M34+matrix.M44;
+                if(q<=0.001f || !float.IsFinite(q))continue;
+                float nx=(x*matrix.M11+y*matrix.M21+z*matrix.M31+matrix.M41)/q;
+                float ny=(x*matrix.M12+y*matrix.M22+z*matrix.M32+matrix.M42)/q;
+                float nz=(x*matrix.M13+y*matrix.M23+z*matrix.M33+matrix.M43)/q;
+                if(!float.IsFinite(nx)||!float.IsFinite(ny)||nz< -1f||nz>1f||Math.Abs(nx)>1.1f||Math.Abs(ny)>1.1f)continue;
+                float sx=44f*2f/width, sy=44f*2f/height;
+                GL.Uniform4(_playerRectUniform,nx-sx*0.5f,ny-sy*0.5f,sx,sy);
+                GL.Uniform3(_playerColorUniform,p.Red,p.Green,p.Blue);
+                int tex=0;
+                if(p.Bgra is {Length:>0} && p.ImageWidth>0 && p.ImageHeight>0)
+                {
+                    if(!_playerPortraitTextures.TryGetValue(p.CharacterId,out tex))
+                    {
+                        tex=GL.GenTexture();GL.BindTexture(TextureTarget.Texture2D,tex);
+                        GL.TexImage2D(TextureTarget.Texture2D,0,PixelInternalFormat.Rgba8,p.ImageWidth,p.ImageHeight,0,
+                            OpenTK.Graphics.OpenGL4.PixelFormat.Bgra,PixelType.UnsignedByte,p.Bgra);
+                        GL.TexParameter(TextureTarget.Texture2D,TextureParameterName.TextureMinFilter,(int)TextureMinFilter.Linear);
+                        GL.TexParameter(TextureTarget.Texture2D,TextureParameterName.TextureMagFilter,(int)TextureMagFilter.Linear);
+                        GL.TexParameter(TextureTarget.Texture2D,TextureParameterName.TextureWrapS,(int)TextureWrapMode.ClampToEdge);
+                        GL.TexParameter(TextureTarget.Texture2D,TextureParameterName.TextureWrapT,(int)TextureWrapMode.ClampToEdge);
+                        _playerPortraitTextures[p.CharacterId]=tex;
+                    }
+                }
+                GL.Uniform1(_playerHasTextureUniform,tex!=0?1:0);
+                GL.BindTexture(TextureTarget.Texture2D,tex);
+                GL.DrawArrays(PrimitiveType.TriangleFan,0,4);
+                DrawPlayerLabel(p, nx, ny, width, height);
+            }
+        }
+        finally
+        {
+            GL.BindVertexArray(0);GL.BindTexture(TextureTarget.Texture2D,0);
+            GL.DepthMask(true);GL.Enable(EnableCap.DepthTest);
+        }
+    }
+
+    private int _playerLabelProgram, _playerLabelRectLocation, _playerLabelSamplerLocation;
+    private void DrawPlayerLabel(PlayerMarker player, float nx, float ny, int viewportWidth, int viewportHeight)
+    {
+        string title = $"{player.Place}. {player.Name}";
+        if (!_playerLabelTextures.TryGetValue(title, out var label))
+        {
+            // System.Drawing is already used by the WinForms GLControl host. All texture creation
+            // remains on the GL thread; labels are cached and never regenerated each frame.
+            using var font = new System.Drawing.Font("Segoe UI", 12f, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Pixel);
+            using var probe = new System.Drawing.Bitmap(1, 1);
+            using var probeGraphics = System.Drawing.Graphics.FromImage(probe);
+            var size = probeGraphics.MeasureString(title, font);
+            int w = Math.Clamp((int)Math.Ceiling(size.Width) + 12, 32, 400);
+            int h = 25;
+            using var bitmap = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+            {
+                graphics.Clear(System.Drawing.Color.Transparent);
+                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                using var background = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(190, 12, 17, 25));
+                using var foreground = new System.Drawing.SolidBrush(System.Drawing.Color.White);
+                graphics.FillRectangle(background, 0, 0, w, h);
+                graphics.DrawString(title, font, foreground, 5, 3);
+            }
+            var rect = new System.Drawing.Rectangle(0, 0, w, h);
+            var bits = bitmap.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly,
+                System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            int texture = GL.GenTexture();
+            GL.BindTexture(TextureTarget.Texture2D, texture);
+            GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba8, w, h, 0,
+                OpenTK.Graphics.OpenGL4.PixelFormat.Bgra, PixelType.UnsignedByte, bits.Scan0);
+            bitmap.UnlockBits(bits);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
+            label = (texture, w, h);
+            _playerLabelTextures[title] = label;
+        }
+        if (_playerLabelProgram == 0)
+        {
+            const string vs = "#version 330 core\nuniform vec4 uRect;out vec2 vUv;void main(){vec2 c=vec2((gl_VertexID==1||gl_VertexID==2)?1.0:0.0,(gl_VertexID>=2)?1.0:0.0);gl_Position=vec4(uRect.xy+c*uRect.zw,0,1);vUv=vec2(c.x,1.0-c.y);}";
+            const string fs = "#version 330 core\nin vec2 vUv;uniform sampler2D uTex;out vec4 color;void main(){color=texture(uTex,vUv);}";
+            int vertex = Compile(ShaderType.VertexShader, vs), fragment = Compile(ShaderType.FragmentShader, fs);
+            int program = GL.CreateProgram();
+            GL.AttachShader(program, vertex); GL.AttachShader(program, fragment); GL.LinkProgram(program);
+            GL.GetProgram(program, GetProgramParameterName.LinkStatus, out int success);
+            string log = GL.GetProgramInfoLog(program);
+            GL.DetachShader(program, vertex); GL.DetachShader(program, fragment);
+            GL.DeleteShader(vertex); GL.DeleteShader(fragment);
+            if (success == 0) { GL.DeleteProgram(program); throw new InvalidOperationException("Player label shader: " + log); }
+            _playerLabelProgram = program;
+            _playerLabelRectLocation = GL.GetUniformLocation(program, "uRect");
+            _playerLabelSamplerLocation = GL.GetUniformLocation(program, "uTex");
+        }
+        GL.UseProgram(_playerLabelProgram);
+        GL.Uniform1(_playerLabelSamplerLocation, 0);
+        float sx = label.Width * 2f / viewportWidth, sy = label.Height * 2f / viewportHeight;
+        GL.Uniform4(_playerLabelRectLocation, nx - sx * 0.5f, ny + 26f * 2f / viewportHeight, sx, sy);
+        GL.BindTexture(TextureTarget.Texture2D, label.Texture);
+        GL.DrawArrays(PrimitiveType.TriangleFan, 0, 4);
+        GL.UseProgram(_playerSpriteProgram);
+        GL.Uniform1(_playerTextureUniform, 0);
+    }
+
+    private void ReleaseKmpLines()
+    {
+        foreach (var batch in _kmpLines)
+        {
+            GL.DeleteBuffer(batch.Vbo);
+            GL.DeleteVertexArray(batch.Vao);
+        }
+        _kmpLines.Clear();
+    }
+
+    private void UploadKmpLines(BrresModelReader.DecodeResult model, IReadOnlyList<KmpLine> lines)
+    {
+        double cx = (model.Minimum.X + model.Maximum.X) * 0.5;
+        double cy = (model.Minimum.Y + model.Maximum.Y) * 0.5;
+        double cz = (model.Minimum.Z + model.Maximum.Z) * 0.5;
+        foreach (var group in lines.GroupBy(s => s.Layer))
+        {
+            var vertices = new List<float>();
+            foreach (var s in group)
+            {
+                float[] coords = [s.X1,s.Y1,s.Z1,s.X2,s.Y2,s.Z2];
+                if (coords.Any(v => !float.IsFinite(v))) continue;
+                vertices.Add((float)((s.X1-cx)*0.001));
+                vertices.Add((float)((s.Y1-cy)*0.001));
+                vertices.Add((float)((s.Z1-cz)*0.001));
+                vertices.Add((float)((s.X2-cx)*0.001));
+                vertices.Add((float)((s.Y2-cy)*0.001));
+                vertices.Add((float)((s.Z2-cz)*0.001));
+            }
+            if (vertices.Count == 0) continue;
+            int vao = GL.GenVertexArray(), vbo = GL.GenBuffer();
+            GL.BindVertexArray(vao);
+            GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
+            float[] data = vertices.ToArray();
+            GL.BufferData(BufferTarget.ArrayBuffer, data.Length * sizeof(float), data, BufferUsageHint.StaticDraw);
+            GL.EnableVertexAttribArray(0);
+            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 3 * sizeof(float), 0);
+            _kmpLines.Add((vao,vbo,data.Length/3,group.Key));
+        }
+        GL.BindVertexArray(0);
+        WriteDiagnostic($"Step 6g.1 KMP overlay: segments={lines.Count}, batches={_kmpLines.Count}, CKPT={lines.Count(s=>s.Layer==1)}, ENPT={lines.Count(s=>s.Layer==2)}, ITPT={lines.Count(s=>s.Layer==4)}, GOBJ={lines.Count(s=>s.Layer==8)}.");
     }
 
     private void DrawBatch(GpuBatch batch)
@@ -3778,6 +4088,7 @@ internal sealed class BrresOpenGlRenderer
             GL.DeleteTexture(batch.Texture);
         }
         _kclBatches.Clear();
+        _kclBatchTypes.Clear();
     }
 
     private void UploadKclOverlay(BrresModelReader.DecodeResult model, IReadOnlyList<KclTriangle> triangles)
@@ -3826,6 +4137,7 @@ internal sealed class BrresOpenGlRenderer
             GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
             GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
             _kclBatches.Add(new GpuBatch(vao, vbo, vertices.Length / 5, tex, false, GlVector3.Zero));
+            _kclBatchTypes.Add(group.Key);
         }
         GL.BindVertexArray(0);
         WriteDiagnostic($"KCL Phase 5 overlay: {triangles.Count} decoded triangles, {valid} processed, {_kclBatches.Count} collision type batches; BRRES coordinates/scale shared.");
@@ -3833,6 +4145,8 @@ internal sealed class BrresOpenGlRenderer
 
     private void ReleaseModel()
     {
+        ReleaseKmpLines();
+        _kmpUploaded = null;
         ReleaseKclOverlay();
         _kclUploaded = null;
         // Drop the model-scoped references before their GL batches are deleted.
